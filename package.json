@@ -5,7 +5,8 @@
   "description": "A toddler-friendly cooking game prototype.",
   "scripts": {
     "serve": "python -m http.server 5173 --bind 127.0.0.1",
-    "test:flow": "node test-full-flow.cjs"
+    "test:flow": "node test-full-flow.cjs",
+    "push": "powershell -ExecutionPolicy Bypass -File scripts/push.ps1"
   },
   "devDependencies": {
     "playwright": "^1.59.1"

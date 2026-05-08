@@ -9,3 +9,13 @@ Open `index.html` directly, or serve the folder with a static server:
 ```powershell
 python -m http.server 5173
 ```
+
+## Deploy
+
+The `main` branch deploys to GitHub Pages automatically through GitHub Actions.
+
+To commit and push local changes:
+
+```powershell
+npm run push -- -Message "Describe your update"
+```
