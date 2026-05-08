@@ -1,0 +1,13 @@
+{
+  "name": "kingdom-kitchen-magic-pan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A toddler-friendly cooking game prototype.",
+  "scripts": {
+    "serve": "python -m http.server 5173 --bind 127.0.0.1",
+    "test:flow": "node test-full-flow.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
+  }
+}

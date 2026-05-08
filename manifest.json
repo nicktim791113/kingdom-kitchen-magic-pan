@@ -1,0 +1,11 @@
+{
+  "name": "王國廚房：我的魔法平底鍋",
+  "short_name": "王國廚房",
+  "description": "2-3 歲幼兒向的互動料理小遊戲",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#fff7d6",
+  "theme_color": "#ff8a65",
+  "icons": []
+}
