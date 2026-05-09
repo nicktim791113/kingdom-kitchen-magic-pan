@@ -67,7 +67,7 @@
         color: "#ef3f38",
         soupColor: "#ffb74d",
         accent: "#ffecb3",
-        prep: { kind: "slice", title: "魔法切蘋果", line1: "點三下", line2: "切成小塊", speech: "點蘋果三下切小塊。" }
+        prep: { kind: "slice", title: "魔法切蘋果", line1: "畫三刀", line2: "切成小塊", speech: "用手指在蘋果上畫三刀。" }
       },
       {
         id: "banana",
@@ -76,7 +76,7 @@
         color: "#ffd54f",
         soupColor: "#ffe082",
         accent: "#fff59d",
-        prep: { kind: "peel", title: "剝開香蕉皮", line1: "拉一拉", line2: "剝開香蕉", speech: "拉一拉，把香蕉皮剝開。" }
+        prep: { kind: "peel", title: "剝開香蕉皮", line1: "滑一滑", line2: "剝開香蕉", speech: "用手指沿著香蕉滑一滑。" }
       },
       {
         id: "strawberry",
@@ -85,7 +85,7 @@
         color: "#ef476f",
         soupColor: "#f48fb1",
         accent: "#ffc1cc",
-        prep: { kind: "pluck", title: "摘掉小葉子", line1: "點葉子", line2: "摘乾淨", speech: "點草莓葉子摘乾淨。" }
+        prep: { kind: "pluck", title: "摘掉小葉子", line1: "畫過葉子", line2: "摘乾淨", speech: "用手指在草莓葉子上滑一滑。" }
       },
       {
         id: "orange",
@@ -94,7 +94,7 @@
         color: "#ff9800",
         soupColor: "#ffcc80",
         accent: "#ffe0b2",
-        prep: { kind: "segment", title: "分成橘子瓣", line1: "點三下", line2: "分小瓣", speech: "點橘子三下分小瓣。" }
+        prep: { kind: "segment", title: "分成橘子瓣", line1: "畫三刀", line2: "分小瓣", speech: "用手指在橘子上畫三刀。" }
       }
     ];
 
@@ -160,6 +160,8 @@
       spoken: "",
       cuts: 0,
       cutFlash: 0,
+      cutTrail: [],
+      cutMarks: [],
       wash: 0,
       dirt: [
         { x: -28, y: -18, r: 9 },
@@ -248,6 +250,8 @@
       state.message = `${state.guest.name}想喝${state.fruit.soupName}`;
       state.cuts = 0;
       state.cutFlash = 0;
+      state.cutTrail = [];
+      state.cutMarks = [];
       state.wash = 0;
       state.apple = { x: 410, y: 315, r: 62 };
       state.drag = null;
@@ -264,6 +268,8 @@
       state.mode = "menu";
       state.message = `選${state.fruit.name}或換一個水果`;
       state.drag = null;
+      state.cutTrail = [];
+      state.cutMarks = [];
       state.stir.active = false;
       state.pendingNext = false;
       state.spoken = "";
@@ -273,8 +279,10 @@
       state.mode = mode;
       state.message = message;
       state.drag = null;
+      state.cutTrail = [];
       state.stir.active = false;
       state.pendingNext = false;
+      if (mode === "cut") state.cutMarks = [];
       if (mode === "wash") speak(`幫${state.fruit.name}洗一洗。`);
       if (mode === "cut") speak(state.fruit.prep.speech);
       if (mode === "cook") speak(`把${state.fruit.name}放進鍋鍋裡。`);
@@ -290,6 +298,7 @@
       if (state.pendingNext) return;
       state.pendingNext = true;
       state.cuts = 3;
+      state.cutTrail = [];
       spawnBurst(state.apple.x, state.apple.y - 20, state.fruit.accent, 28);
       audio.beep(820, 0.14, "triangle");
       setTimeout(() => {
@@ -311,6 +320,58 @@
 
     function dist(a, b) {
       return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function beginPrepGesture(point) {
+      state.drag = {
+        type: state.fruit.prep.kind === "peel" ? "peel" : "prep",
+        start: point,
+        last: point,
+        path: [point],
+        length: 0,
+        maxDistance: 0
+      };
+      state.cutTrail = [point];
+      state.cutFlash = 0.12;
+    }
+
+    function trackPrepGesture(point) {
+      if (!state.drag || (state.drag.type !== "prep" && state.drag.type !== "peel")) return 0;
+      const moved = dist(point, state.drag.last);
+      state.drag.length += moved;
+      state.drag.maxDistance = Math.max(state.drag.maxDistance, dist(point, state.drag.start));
+      state.drag.last = point;
+      state.drag.path.push(point);
+      if (state.drag.path.length > 18) state.drag.path.shift();
+      state.cutTrail = state.drag.path.slice();
+      if (moved > 1) state.cutFlash = 0.18;
+      return moved;
+    }
+
+    function completePrepGesture() {
+      if (!state.drag || state.drag.type !== "prep") return;
+      const gesture = state.drag;
+      const end = gesture.last;
+      const validStroke = gesture.length >= 56 && gesture.maxDistance >= 46 && dist(gesture.start, state.apple) < 135;
+      if (!validStroke) {
+        audio.beep(240, 0.06, "sine");
+        state.cutTrail = [];
+        return;
+      }
+
+      state.cuts = Math.min(3, Math.floor(state.cuts) + 1);
+      state.cutFlash = 0.24;
+      const mark = {
+        start: { x: gesture.start.x, y: gesture.start.y },
+        end: { x: end.x, y: end.y },
+        color: state.fruit.accent
+      };
+      state.cutMarks.push(mark);
+      if (state.cutMarks.length > 3) state.cutMarks.shift();
+      spawnBurst((mark.start.x + mark.end.x) / 2, (mark.start.y + mark.end.y) / 2, state.fruit.accent, 14);
+      audio.beep(760 + state.cuts * 70, 0.08, "triangle");
+      state.cutTrail = [];
+      if (state.cuts >= 3) finishPrep();
     }
 
     function spawnBurst(x, y, color = "#ffd54f", count = 18) {
@@ -374,18 +435,9 @@
         return;
       }
 
-      if (state.mode === "cut" && dist(point, state.apple) < 95) {
-        if (state.fruit.prep.kind === "peel") {
-          state.drag = { type: "peel", last: point };
-          audio.beep(520, 0.06, "triangle");
-          return;
-        }
-
-        state.cuts = Math.min(3, state.cuts + 1);
-        state.cutFlash = 0.22;
-        spawnBurst(point.x, point.y, state.fruit.accent, 12);
-        audio.beep(760 + state.cuts * 70, 0.07, "triangle");
-        if (state.cuts >= 3) finishPrep();
+      if (state.mode === "cut" && dist(point, state.apple) < 130) {
+        beginPrepGesture(point);
+        audio.beep(state.fruit.prep.kind === "peel" ? 520 : 610, 0.06, "triangle");
         return;
       }
 
@@ -429,14 +481,21 @@
       }
 
       if (state.mode === "cut" && state.drag?.type === "peel") {
-        const moved = dist(point, state.drag.last);
+        const moved = trackPrepGesture(point);
         if (dist(point, state.apple) < 130) {
           state.cuts = Math.min(3, state.cuts + moved / 64);
           state.cutFlash = 0.18;
           if (moved > 2) spawnBurst(point.x, point.y, state.fruit.accent, 1);
           if (state.cuts >= 3) finishPrep();
         }
-        state.drag.last = point;
+        return;
+      }
+
+      if (state.mode === "cut" && state.drag?.type === "prep") {
+        const moved = trackPrepGesture(point);
+        if (dist(point, state.apple) < 150 && moved > 3) {
+          spawnBurst(point.x, point.y, state.fruit.accent, 1);
+        }
         return;
       }
 
@@ -464,6 +523,14 @@
     }
 
     function pointerUp() {
+      if (state.mode === "cut" && state.drag?.type === "prep") {
+        completePrepGesture();
+      }
+
+      if (state.mode === "cut" && state.drag?.type === "peel") {
+        state.cutTrail = [];
+      }
+
       if (state.mode === "cook" && state.drag?.type === "apple") {
         const center = potCenter();
         if (dist(state.apple, center) < 140) {
@@ -625,8 +692,60 @@
       drawSpeech(98, 138, 292, 92, state.fruit.prep.line1, state.fruit.prep.line2);
       drawCuttingBoard(326, 260, 260, 132);
       drawPrepStage(state.apple.x, state.apple.y, state.cuts);
+      drawCutMarks();
+      drawCutTrail();
       drawMagicWand(state.apple.x + 88, state.apple.y - 88 + (state.cutFlash > 0 ? 28 : Math.sin(state.time * 5) * 5), state.cutFlash);
       drawProgress(338, 438, 284, state.cuts / 3, state.fruit.accent);
+    }
+
+    function drawCutMarks() {
+      if (!state.cutMarks.length) return;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      state.cutMarks.forEach((mark, index) => {
+        ctx.strokeStyle = "rgba(93, 64, 55, 0.35)";
+        ctx.lineWidth = 14;
+        ctx.beginPath();
+        ctx.moveTo(mark.start.x, mark.start.y);
+        ctx.lineTo(mark.end.x, mark.end.y);
+        ctx.stroke();
+
+        ctx.strokeStyle = index === state.cutMarks.length - 1 ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.72)";
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(mark.start.x, mark.start.y);
+        ctx.lineTo(mark.end.x, mark.end.y);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    function drawCutTrail() {
+      if (state.cutTrail.length < 2) return;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.86)";
+      ctx.lineWidth = 9;
+      ctx.beginPath();
+      ctx.moveTo(state.cutTrail[0].x, state.cutTrail[0].y);
+      for (const point of state.cutTrail.slice(1)) ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+
+      ctx.strokeStyle = state.fruit.accent;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(state.cutTrail[0].x, state.cutTrail[0].y);
+      for (const point of state.cutTrail.slice(1)) ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+
+      const tip = state.cutTrail[state.cutTrail.length - 1];
+      ctx.fillStyle = "#fffde7";
+      ctx.beginPath();
+      ctx.arc(tip.x, tip.y, 8 + Math.sin(state.time * 16) * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
     function drawCook() {
@@ -1620,6 +1739,8 @@
           prep: Number(Math.min(1, state.cuts / 3).toFixed(2)),
           prepKind: state.fruit.prep.kind,
           cuts: Number(state.cuts.toFixed(2)),
+          cutMarks: state.cutMarks.length,
+          drawingStroke: state.drag?.type === "prep" || state.drag?.type === "peel",
           stir: Number(Math.min(1, state.stir.travel / (Math.PI * 4.2)).toFixed(2))
         },
         collection: FRUITS.map((fruit) => ({

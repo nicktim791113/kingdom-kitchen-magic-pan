@@ -119,9 +119,9 @@ async function playRound(page, pointer, label, fruitId) {
       [520, 344], [430, 362], [486, 320], [530, 350]
     ]);
   } else {
-    await pointer.click(410, 315);
-    await pointer.click(410, 315);
-    await pointer.click(410, 315);
+    await pointer.drag([[354, 260], [390, 296], [430, 334], [470, 374]]);
+    await pointer.drag([[466, 258], [430, 296], [396, 336], [360, 374]]);
+    await pointer.drag([[344, 330], [386, 318], [430, 306], [480, 292]]);
   }
   await page.waitForTimeout(220);
   expectMode(await readState(page), "cut");
