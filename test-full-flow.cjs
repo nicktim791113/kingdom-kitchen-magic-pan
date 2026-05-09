@@ -63,17 +63,40 @@ function expectMode(state, mode) {
   }
 }
 
-async function playRound(page, pointer, label, startFromMenu = false) {
-  if (startFromMenu) {
-    await screenshot(page, `${label}-01-menu`);
-    await pointer.click(480, 423);
-    await page.waitForTimeout(300);
-  } else {
+function expectFruit(state, fruitId) {
+  if (state.fruit.id !== fruitId) {
+    throw new Error(`Expected fruit ${fruitId}, got ${state.fruit.id}: ${JSON.stringify(state)}`);
+  }
+}
+
+async function openMenuIfNeeded(page, pointer) {
+  const state = await readState(page);
+  if (state.mode === "reward") {
     await pointer.click(480, 428);
     await page.waitForTimeout(300);
   }
+  expectMode(await readState(page), "menu");
+}
 
-  expectMode(await readState(page), "order");
+async function chooseFruit(page, pointer, fruitId) {
+  const state = await readState(page);
+  const fruitButton = state.interactiveTargets.fruitButtons.find((button) => button.id === fruitId);
+  if (!fruitButton) throw new Error(`Fruit button not found for ${fruitId}: ${JSON.stringify(state)}`);
+  await pointer.click(fruitButton.x + fruitButton.w / 2, fruitButton.y + fruitButton.h / 2);
+  await page.waitForTimeout(300);
+  const selectedState = await readState(page);
+  expectMode(selectedState, "order");
+  expectFruit(selectedState, fruitId);
+}
+
+async function playRound(page, pointer, label, fruitId) {
+  await openMenuIfNeeded(page, pointer);
+  await screenshot(page, `${label}-01-menu`);
+  await chooseFruit(page, pointer, fruitId);
+
+  const orderState = await readState(page);
+  expectMode(orderState, "order");
+  expectFruit(orderState, fruitId);
   await screenshot(page, `${label}-02-order`);
 
   await pointer.click(725, 417);
@@ -108,6 +131,7 @@ async function playRound(page, pointer, label, startFromMenu = false) {
   await page.waitForTimeout(400);
   const finalState = await readState(page);
   expectMode(finalState, "reward");
+  expectFruit(finalState, fruitId);
   await screenshot(page, `${label}-08-reward`);
   return finalState;
 }
@@ -127,10 +151,10 @@ async function playRound(page, pointer, label, startFromMenu = false) {
   const pointer = await makePointer(page);
 
   const finalStates = [];
-  finalStates.push(await playRound(page, pointer, "01-apple", true));
-  finalStates.push(await playRound(page, pointer, "02-banana"));
-  finalStates.push(await playRound(page, pointer, "03-strawberry"));
-  finalStates.push(await playRound(page, pointer, "04-orange"));
+  finalStates.push(await playRound(page, pointer, "01-apple", "apple"));
+  finalStates.push(await playRound(page, pointer, "02-banana", "banana"));
+  finalStates.push(await playRound(page, pointer, "03-strawberry", "strawberry"));
+  finalStates.push(await playRound(page, pointer, "04-orange", "orange"));
   const finalState = finalStates.at(-1);
   fs.writeFileSync(path.join(outDir, "final-state.json"), JSON.stringify(finalState, null, 2), "utf8");
 

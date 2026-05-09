@@ -69,8 +69,9 @@
     const state = {
       mode: "menu",
       time: 0,
-      message: "今天做水果魔法湯",
-      recipeIndex: -1,
+      message: "點水果開始料理",
+      selectedFruitIndex: 0,
+      recipeIndex: 0,
       fruit: FRUITS[0],
       spoken: "",
       cuts: 0,
@@ -92,7 +93,7 @@
     };
 
     const hit = {
-      start: { x: 350, y: 385, w: 260, h: 76 },
+      fruits: FRUITS.map((_, index) => ({ x: 136 + index * 148, y: 260, w: 120, h: 124 })),
       order: { x: 620, y: 382, w: 210, h: 70 },
       again: { x: 350, y: 392, w: 260, h: 72 },
       mute: { x: 848, y: 24, w: 74, h: 48 }
@@ -141,8 +142,16 @@
       }
     }
 
-    function resetRound() {
-      state.recipeIndex = (state.recipeIndex + 1) % FRUITS.length;
+    function selectFruit(index) {
+      state.selectedFruitIndex = index;
+      state.recipeIndex = index;
+      state.fruit = FRUITS[index];
+      state.message = `今天做${state.fruit.name}魔法湯`;
+    }
+
+    function resetRound(index = state.selectedFruitIndex) {
+      state.selectedFruitIndex = index;
+      state.recipeIndex = index;
       state.fruit = FRUITS[state.recipeIndex];
       state.mode = "order";
       state.message = `小公主想喝${state.fruit.name}魔法湯`;
@@ -155,6 +164,14 @@
       state.particles = [];
       state.spoken = "";
       speak(`小公主想喝${state.fruit.name}魔法湯。`);
+    }
+
+    function returnToMenu() {
+      state.mode = "menu";
+      state.message = `選${state.fruit.name}或換一個水果`;
+      state.drag = null;
+      state.stir.active = false;
+      state.spoken = "";
     }
 
     function setMode(mode, message) {
@@ -209,9 +226,14 @@
         return;
       }
 
-      if (state.mode === "menu" && inRect(point, hit.start)) {
-        audio.beep(520);
-        resetRound();
+      if (state.mode === "menu") {
+        const fruitIndex = hit.fruits.findIndex((rect) => inRect(point, rect));
+        if (fruitIndex >= 0) {
+          selectFruit(fruitIndex);
+          audio.beep(520 + fruitIndex * 70, 0.07, "triangle");
+          resetRound(fruitIndex);
+          return;
+        }
         return;
       }
 
@@ -254,7 +276,7 @@
 
       if (state.mode === "reward" && inRect(point, hit.again)) {
         audio.beep(660);
-        resetRound();
+        returnToMenu();
       }
     }
 
@@ -393,20 +415,30 @@
 
     function drawTitle() {
       drawKitchen();
-      drawChef(215, 302, 1.22, true);
-      drawPot(610, 270, 1.14);
-      drawFruit("apple", 480, 320, 34, 0.86);
-      drawFruit("banana", 542, 324, 34, 0.86);
-      drawFruit("strawberry", 600, 322, 34, 0.86);
-      drawFruit("orange", 656, 322, 34, 0.86);
+      drawChef(144, 332, 0.92, true);
+      drawPot(688, 282, 0.92);
       ctx.fillStyle = "#5d4037";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = "900 48px system-ui";
-      ctx.fillText("王國廚房", VIEW.w / 2, 166);
-      ctx.font = "700 26px system-ui";
-      ctx.fillText("我的魔法平底鍋", VIEW.w / 2, 216);
-      drawButton(hit.start, "開始料理", "#ff8a65");
+      ctx.font = "900 46px system-ui";
+      ctx.fillText("王國廚房", VIEW.w / 2, 130);
+      ctx.font = "700 25px system-ui";
+      ctx.fillText("我的魔法平底鍋", VIEW.w / 2, 176);
+      ctx.font = "800 25px system-ui";
+      ctx.fillText("點一個水果開始料理", VIEW.w / 2, 226);
+      FRUITS.forEach((fruit, index) => drawFruitChoice(fruit, index, hit.fruits[index]));
+    }
+
+    function drawFruitChoice(fruit, index, rect) {
+      const bounce = Math.sin(state.time * 3 + index) * 1.5;
+      roundRect(rect.x, rect.y + bounce, rect.w, rect.h, 8, "#a1887f");
+      roundRect(rect.x + 6, rect.y + 6 + bounce, rect.w - 12, rect.h - 12, 8, "#ffffff");
+      drawFruit(fruit.id, rect.x + rect.w / 2, rect.y + 48 + bounce, 38, 0.96);
+      ctx.fillStyle = "#5d4037";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 23px system-ui";
+      ctx.fillText(fruit.name, rect.x + rect.w / 2, rect.y + 98 + bounce);
     }
 
     function drawOrder() {
@@ -477,7 +509,7 @@
       drawSpeech(326, 142, 430, 122, "完成了", "好香喔");
       drawSoupBowl(520, 354, 1.15);
       drawSticker(705, 350);
-      drawButton(hit.again, "再煮一次", "#42a5f5");
+      drawButton(hit.again, "再選水果", "#42a5f5");
     }
 
     function drawWorkScene() {
@@ -1132,7 +1164,7 @@
           stir: Number(Math.min(1, state.stir.travel / (Math.PI * 4.2)).toFixed(2))
         },
         interactiveTargets: {
-          startButton: hit.start,
+          fruitButtons: hit.fruits.map((rect, index) => ({ ...rect, id: FRUITS[index].id, name: FRUITS[index].name })),
           orderButton: hit.order,
           apple: { x: Math.round(state.apple.x), y: Math.round(state.apple.y), r: Math.round(state.apple.r || 46) },
           pot: { x: Math.round(center.x), y: Math.round(center.y), r: 140 },
