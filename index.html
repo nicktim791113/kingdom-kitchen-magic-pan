@@ -59,11 +59,19 @@
     const ctx = canvas.getContext("2d");
     const VIEW = { w: 960, h: 540 };
     const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const FRUITS = [
+      { id: "apple", name: "蘋果", color: "#ef3f38" },
+      { id: "banana", name: "香蕉", color: "#ffd54f" },
+      { id: "strawberry", name: "草莓", color: "#ef476f" },
+      { id: "orange", name: "橘子", color: "#ff9800" }
+    ];
 
     const state = {
       mode: "menu",
       time: 0,
-      message: "今天做蘋果魔法湯",
+      message: "今天做水果魔法湯",
+      recipeIndex: -1,
+      fruit: FRUITS[0],
       spoken: "",
       cuts: 0,
       cutFlash: 0,
@@ -134,8 +142,10 @@
     }
 
     function resetRound() {
+      state.recipeIndex = (state.recipeIndex + 1) % FRUITS.length;
+      state.fruit = FRUITS[state.recipeIndex];
       state.mode = "order";
-      state.message = "小公主想喝蘋果魔法湯";
+      state.message = `小公主想喝${state.fruit.name}魔法湯`;
       state.cuts = 0;
       state.cutFlash = 0;
       state.wash = 0;
@@ -144,7 +154,7 @@
       state.stir = { active: false, lastAngle: 0, travel: 0 };
       state.particles = [];
       state.spoken = "";
-      speak("小公主想喝蘋果魔法湯。");
+      speak(`小公主想喝${state.fruit.name}魔法湯。`);
     }
 
     function setMode(mode, message) {
@@ -152,9 +162,9 @@
       state.message = message;
       state.drag = null;
       state.stir.active = false;
-      if (mode === "wash") speak("幫蘋果洗一洗。");
-      if (mode === "cut") speak("點一點蘋果，切成小塊。");
-      if (mode === "cook") speak("把蘋果放進鍋鍋裡。");
+      if (mode === "wash") speak(`幫${state.fruit.name}洗一洗。`);
+      if (mode === "cut") speak(`點一點${state.fruit.name}，切成小塊。`);
+      if (mode === "cook") speak(`把${state.fruit.name}放進鍋鍋裡。`);
       if (mode === "stir") speak("繞圈圈攪一攪。");
       if (mode === "reward") speak("完成了，好香喔。");
     }
@@ -207,7 +217,7 @@
 
       if (state.mode === "order" && inRect(point, hit.order)) {
         audio.beep(640);
-        setMode("wash", "把蘋果洗乾淨");
+        setMode("wash", `把${state.fruit.name}洗乾淨`);
         return;
       }
 
@@ -222,7 +232,7 @@
         state.cutFlash = 0.22;
         spawnBurst(state.apple.x + 32, state.apple.y - 28, "#ffecb3", 10);
         audio.beep(760 + state.cuts * 70, 0.07, "square");
-        if (state.cuts >= 3) setTimeout(() => setMode("cook", "拖曳蘋果放進鍋鍋"), 700);
+        if (state.cuts >= 3) setTimeout(() => setMode("cook", `拖曳${state.fruit.name}放進鍋鍋`), 700);
         return;
       }
 
@@ -258,7 +268,7 @@
           if (state.wash >= 1) {
             spawnBurst(state.apple.x, state.apple.y, "#4fc3f7", 22);
             audio.beep(720, 0.12);
-            setTimeout(() => setMode("cut", "點蘋果三下切小塊"), 240);
+            setTimeout(() => setMode("cut", `點${state.fruit.name}三下切小塊`), 240);
           }
         }
         state.drag.last = point;
@@ -283,7 +293,7 @@
         if (state.stir.travel >= Math.PI * 4.2) {
           spawnBurst(center.x, center.y - 35, "#ffecb3", 34);
           audio.beep(860, 0.16, "triangle");
-          setMode("reward", "蘋果魔法湯完成了");
+          setMode("reward", `${state.fruit.name}魔法湯完成了`);
         }
       }
     }
@@ -385,6 +395,10 @@
       drawKitchen();
       drawChef(215, 302, 1.22, true);
       drawPot(610, 270, 1.14);
+      drawFruit("apple", 480, 320, 34, 0.86);
+      drawFruit("banana", 542, 324, 34, 0.86);
+      drawFruit("strawberry", 600, 322, 34, 0.86);
+      drawFruit("orange", 656, 322, 34, 0.86);
       ctx.fillStyle = "#5d4037";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -398,15 +412,15 @@
     function drawOrder() {
       drawKitchen();
       drawChef(210, 318, 1.22, true);
-      drawSpeech(326, 160, 430, 140, "我想喝", "蘋果魔法湯");
-      drawApple(530, 354, 52, 1);
+      drawSpeech(326, 160, 430, 140, "我想喝", `${state.fruit.name}魔法湯`);
+      drawFruit(state.fruit.id, 530, 354, 52, 1);
       drawButton(hit.order, "好呀", "#66bb6a");
     }
 
     function drawWash() {
       drawWorkScene();
       drawSpeech(98, 138, 292, 92, "洗一洗", "乾乾淨淨");
-      drawApple(state.apple.x, state.apple.y, state.apple.r, 1);
+      drawFruit(state.fruit.id, state.apple.x, state.apple.y, state.apple.r, 1);
       const alpha = 1 - state.wash;
       for (const d of state.dirt) {
         ctx.globalAlpha = Math.max(0, alpha);
@@ -432,7 +446,7 @@
       drawWorkScene();
       drawSpeech(76, 138, 330, 92, "拖到鍋鍋", "輕輕放進去");
       drawPot(state.pot.x, state.pot.y, 1);
-      drawApple(state.apple.x, state.apple.y, 46, 0.96);
+      drawFruit(state.fruit.id, state.apple.x, state.apple.y, 46, 0.96);
       const center = potCenter();
       ctx.strokeStyle = "rgba(255, 213, 79, 0.82)";
       ctx.lineWidth = 5;
@@ -522,6 +536,13 @@
       ctx.restore();
     }
 
+    function drawFruit(kind, x, y, r, scale = 1) {
+      if (kind === "banana") return drawBanana(x, y, r, scale);
+      if (kind === "strawberry") return drawStrawberry(x, y, r, scale);
+      if (kind === "orange") return drawOrange(x, y, r, scale);
+      return drawApple(x, y, r, scale);
+    }
+
     function drawApple(x, y, r, scale = 1) {
       ctx.save();
       ctx.translate(x, y);
@@ -608,6 +629,159 @@
       ctx.restore();
     }
 
+    function drawBanana(x, y, r, scale = 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.rotate(-0.2);
+
+      ctx.shadowColor = "rgba(93, 64, 55, 0.18)";
+      ctx.shadowBlur = r * 0.08;
+      ctx.shadowOffsetY = r * 0.08;
+
+      ctx.fillStyle = "#f9a825";
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.98, -r * 0.18);
+      ctx.bezierCurveTo(-r * 0.42, r * 0.92, r * 0.52, r * 0.9, r * 0.98, -r * 0.1);
+      ctx.bezierCurveTo(r * 0.5, r * 0.45, -r * 0.2, r * 0.42, -r * 0.72, -r * 0.28);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.shadowColor = "transparent";
+      ctx.fillStyle = "#ffd95a";
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.78, -r * 0.18);
+      ctx.bezierCurveTo(-r * 0.26, r * 0.54, r * 0.42, r * 0.55, r * 0.78, -r * 0.08);
+      ctx.bezierCurveTo(r * 0.34, r * 0.25, -r * 0.2, r * 0.22, -r * 0.58, -r * 0.24);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "#8d6e63";
+      ctx.lineWidth = Math.max(3, r * 0.055);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.72, -r * 0.1);
+      ctx.bezierCurveTo(-r * 0.16, r * 0.44, r * 0.42, r * 0.38, r * 0.76, -r * 0.08);
+      ctx.stroke();
+
+      ctx.fillStyle = "#6d4c41";
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.95, -r * 0.2, r * 0.12, r * 0.08, -0.2, 0, Math.PI * 2);
+      ctx.ellipse(r * 0.98, -r * 0.12, r * 0.1, r * 0.08, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.34;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.28, r * 0.13, r * 0.12, r * 0.06, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function drawStrawberry(x, y, r, scale = 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+
+      ctx.shadowColor = "rgba(93, 64, 55, 0.18)";
+      ctx.shadowBlur = r * 0.08;
+      ctx.shadowOffsetY = r * 0.08;
+
+      ctx.fillStyle = "#b71c35";
+      ctx.beginPath();
+      ctx.moveTo(0, r * 0.82);
+      ctx.bezierCurveTo(-r * 0.78, r * 0.16, -r * 0.62, -r * 0.68, 0, -r * 0.58);
+      ctx.bezierCurveTo(r * 0.62, -r * 0.68, r * 0.78, r * 0.16, 0, r * 0.82);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.shadowColor = "transparent";
+      const gradient = ctx.createRadialGradient(-r * 0.28, -r * 0.2, r * 0.05, 0, r * 0.08, r);
+      gradient.addColorStop(0, "#ff7a8a");
+      gradient.addColorStop(0.5, "#ef476f");
+      gradient.addColorStop(1, "#c91d44");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(0, r * 0.68);
+      ctx.bezierCurveTo(-r * 0.62, r * 0.12, -r * 0.5, -r * 0.52, 0, -r * 0.46);
+      ctx.bezierCurveTo(r * 0.5, -r * 0.52, r * 0.62, r * 0.12, 0, r * 0.68);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#2e7d32";
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.ellipse(i * r * 0.12, -r * 0.54, r * 0.14, r * 0.26, i * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#ffe082";
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+          const px = (col - 1) * r * 0.22 + (row % 2) * r * 0.08;
+          const py = -r * 0.16 + row * r * 0.22;
+          ctx.beginPath();
+          ctx.ellipse(px, py, r * 0.035, r * 0.06, 0.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.36;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.22, -r * 0.18, r * 0.11, r * 0.18, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function drawOrange(x, y, r, scale = 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+
+      ctx.shadowColor = "rgba(93, 64, 55, 0.18)";
+      ctx.shadowBlur = r * 0.08;
+      ctx.shadowOffsetY = r * 0.08;
+
+      ctx.fillStyle = "#ef6c00";
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.74, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowColor = "transparent";
+      const gradient = ctx.createRadialGradient(-r * 0.28, -r * 0.28, r * 0.08, 0, 0, r * 0.82);
+      gradient.addColorStop(0, "#ffcc80");
+      gradient.addColorStop(0.5, "#ff9800");
+      gradient.addColorStop(1, "#f57c00");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.64, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255, 236, 179, 0.7)";
+      ctx.lineWidth = Math.max(2, r * 0.035);
+      for (let i = 0; i < 8; i++) {
+        const angle = i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle) * r * 0.48, Math.sin(angle) * r * 0.48);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#fff3e0";
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#66bb6a";
+      ctx.beginPath();
+      ctx.ellipse(r * 0.28, -r * 0.72, r * 0.24, r * 0.12, -0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     function drawCuttingBoard(x, y, w, h) {
       roundRect(x, y, w, h, 8, "#f6c17a");
       roundRect(x + 14, y + 13, w - 28, h - 26, 8, "#ffd08a");
@@ -625,7 +799,7 @@
 
     function drawCutStageApple(x, y, cuts) {
       if (cuts === 0) {
-        drawApple(x, y - 2, 58, 1);
+        drawFruit(state.fruit.id, x, y - 2, 58, 1);
         drawCutGuide(x, y - 56, 116);
         return;
       }
@@ -634,7 +808,7 @@
       const startX = x - (pieces - 1) * 31;
       for (let i = 0; i < pieces; i++) {
         const lean = (i - (pieces - 1) / 2) * 0.1;
-        drawAppleSlice(startX + i * 62, y + Math.abs(i - 1.5) * 3, 1, lean);
+        drawFruitSlice(state.fruit.id, startX + i * 62, y + Math.abs(i - 1.5) * 3, 1, lean);
       }
 
       if (cuts < 3) {
@@ -662,6 +836,13 @@
       ctx.setLineDash([]);
     }
 
+    function drawFruitSlice(kind, x, y, scale = 1, rotate = 0) {
+      if (kind === "banana") return drawBananaSlice(x, y, scale, rotate);
+      if (kind === "strawberry") return drawStrawberrySlice(x, y, scale, rotate);
+      if (kind === "orange") return drawOrangeSlice(x, y, scale, rotate);
+      return drawAppleSlice(x, y, scale, rotate);
+    }
+
     function drawAppleSlice(x, y, scale = 1, rotate = 0) {
       ctx.save();
       ctx.translate(x, y);
@@ -684,6 +865,80 @@
       ctx.ellipse(4, -10, 3, 6, -0.2, 0, Math.PI * 2);
       ctx.ellipse(8, 12, 3, 6, 0.2, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBananaSlice(x, y, scale = 1, rotate = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rotate);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#f9a825";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 34, 50, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff6b5";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 26, 40, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#d6a523";
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawStrawberrySlice(x, y, scale = 1, rotate = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rotate);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#c91d44";
+      ctx.beginPath();
+      ctx.moveTo(0, 54);
+      ctx.bezierCurveTo(-38, 8, -30, -42, 0, -48);
+      ctx.bezierCurveTo(30, -42, 38, 8, 0, 54);
+      ctx.fill();
+      ctx.fillStyle = "#fff3f0";
+      ctx.beginPath();
+      ctx.moveTo(0, 40);
+      ctx.bezierCurveTo(-24, 8, -20, -28, 0, -34);
+      ctx.bezierCurveTo(20, -28, 24, 8, 0, 40);
+      ctx.fill();
+      ctx.fillStyle = "#ffe082";
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.ellipse(i * 8, 0 + Math.abs(i) * 8, 3, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawOrangeSlice(x, y, scale = 1, rotate = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rotate);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#ef6c00";
+      ctx.beginPath();
+      ctx.moveTo(0, -50);
+      ctx.arc(0, 0, 50, -Math.PI / 2, Math.PI / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ffcc80";
+      ctx.beginPath();
+      ctx.moveTo(0, -38);
+      ctx.arc(0, 0, 38, -Math.PI / 2, Math.PI / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#fff3e0";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(34, -18);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(34, 18);
+      ctx.stroke();
       ctx.restore();
     }
 
@@ -783,7 +1038,7 @@
       ctx.strokeStyle = "#ffca28";
       ctx.lineWidth = 7;
       ctx.strokeRect(-56, -58, 112, 116);
-      drawApple(0, -8, 34, 1);
+      drawFruit(state.fruit.id, 0, -8, 34, 1);
       ctx.fillStyle = "#5d4037";
       ctx.font = "800 22px system-ui";
       ctx.textAlign = "center";
@@ -870,6 +1125,7 @@
         coordinateSystem: "Canvas coordinates, origin top-left, x right, y down, size 960x540.",
         mode: state.mode,
         message: state.message,
+        fruit: { id: state.fruit.id, name: state.fruit.name },
         progress: {
           wash: Number(state.wash.toFixed(2)),
           cuts: state.cuts,

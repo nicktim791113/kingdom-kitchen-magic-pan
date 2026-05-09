@@ -63,6 +63,55 @@ function expectMode(state, mode) {
   }
 }
 
+async function playRound(page, pointer, label, startFromMenu = false) {
+  if (startFromMenu) {
+    await screenshot(page, `${label}-01-menu`);
+    await pointer.click(480, 423);
+    await page.waitForTimeout(300);
+  } else {
+    await pointer.click(480, 428);
+    await page.waitForTimeout(300);
+  }
+
+  expectMode(await readState(page), "order");
+  await screenshot(page, `${label}-02-order`);
+
+  await pointer.click(725, 417);
+  await page.waitForTimeout(200);
+  expectMode(await readState(page), "wash");
+  await screenshot(page, `${label}-03-wash-start`);
+
+  await pointer.drag([
+    [382, 300], [445, 306], [380, 336], [452, 286], [390, 350],
+    [450, 330], [370, 315], [438, 282], [392, 346], [452, 316]
+  ]);
+  await page.waitForTimeout(500);
+  expectMode(await readState(page), "cut");
+  await screenshot(page, `${label}-04-cut`);
+
+  await pointer.click(410, 315);
+  await pointer.click(410, 315);
+  await pointer.click(410, 315);
+  await page.waitForTimeout(220);
+  expectMode(await readState(page), "cut");
+  await screenshot(page, `${label}-05-cut-sliced`);
+  await page.waitForTimeout(700);
+  expectMode(await readState(page), "cook");
+  await screenshot(page, `${label}-06-cook`);
+
+  await pointer.drag([[410, 315], [520, 330], [640, 350], [765, 361]]);
+  await page.waitForTimeout(300);
+  expectMode(await readState(page), "stir");
+  await screenshot(page, `${label}-07-stir`);
+
+  await pointer.circle(765, 361, 74, 3);
+  await page.waitForTimeout(400);
+  const finalState = await readState(page);
+  expectMode(finalState, "reward");
+  await screenshot(page, `${label}-08-reward`);
+  return finalState;
+}
+
 (async () => {
   ensureDir(outDir);
   const browser = await chromium.launch({ headless: true });
@@ -77,45 +126,12 @@ function expectMode(state, mode) {
   await page.waitForTimeout(300);
   const pointer = await makePointer(page);
 
-  await screenshot(page, "01-menu");
-  await pointer.click(480, 423);
-  await page.waitForTimeout(300);
-  expectMode(await readState(page), "order");
-  await screenshot(page, "02-order");
-
-  await pointer.click(725, 417);
-  await page.waitForTimeout(200);
-  expectMode(await readState(page), "wash");
-  await screenshot(page, "03-wash-start");
-
-  await pointer.drag([
-    [382, 300], [445, 306], [380, 336], [452, 286], [390, 350],
-    [450, 330], [370, 315], [438, 282], [392, 346], [452, 316]
-  ]);
-  await page.waitForTimeout(500);
-  expectMode(await readState(page), "cut");
-  await screenshot(page, "04-cut");
-
-  await pointer.click(410, 315);
-  await pointer.click(410, 315);
-  await pointer.click(410, 315);
-  await page.waitForTimeout(220);
-  expectMode(await readState(page), "cut");
-  await screenshot(page, "05-cut-sliced");
-  await page.waitForTimeout(700);
-  expectMode(await readState(page), "cook");
-  await screenshot(page, "06-cook");
-
-  await pointer.drag([[410, 315], [520, 330], [640, 350], [765, 361]]);
-  await page.waitForTimeout(300);
-  expectMode(await readState(page), "stir");
-  await screenshot(page, "07-stir");
-
-  await pointer.circle(765, 361, 74, 3);
-  await page.waitForTimeout(400);
-  const finalState = await readState(page);
-  expectMode(finalState, "reward");
-  await screenshot(page, "08-reward");
+  const finalStates = [];
+  finalStates.push(await playRound(page, pointer, "01-apple", true));
+  finalStates.push(await playRound(page, pointer, "02-banana"));
+  finalStates.push(await playRound(page, pointer, "03-strawberry"));
+  finalStates.push(await playRound(page, pointer, "04-orange"));
+  const finalState = finalStates.at(-1);
   fs.writeFileSync(path.join(outDir, "final-state.json"), JSON.stringify(finalState, null, 2), "utf8");
 
   if (errors.length) {
