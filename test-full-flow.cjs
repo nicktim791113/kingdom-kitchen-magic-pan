@@ -109,12 +109,20 @@ async function playRound(page, pointer, label, fruitId) {
     [450, 330], [370, 315], [438, 282], [392, 346], [452, 316]
   ]);
   await page.waitForTimeout(500);
-  expectMode(await readState(page), "cut");
+  const prepStartState = await readState(page);
+  expectMode(prepStartState, "cut");
   await screenshot(page, `${label}-04-cut`);
 
-  await pointer.click(410, 315);
-  await pointer.click(410, 315);
-  await pointer.click(410, 315);
+  if (prepStartState.progress.prepKind === "peel") {
+    await pointer.drag([
+      [380, 315], [430, 335], [470, 355], [390, 348], [462, 326],
+      [520, 344], [430, 362], [486, 320], [530, 350]
+    ]);
+  } else {
+    await pointer.click(410, 315);
+    await pointer.click(410, 315);
+    await pointer.click(410, 315);
+  }
   await page.waitForTimeout(220);
   expectMode(await readState(page), "cut");
   await screenshot(page, `${label}-05-cut-sliced`);
@@ -132,8 +140,27 @@ async function playRound(page, pointer, label, fruitId) {
   const finalState = await readState(page);
   expectMode(finalState, "reward");
   expectFruit(finalState, fruitId);
+  const sticker = finalState.collection.find((item) => item.id === fruitId);
+  if (!sticker || sticker.count < 1 || sticker.stars < 1) {
+    throw new Error(`Expected sticker progress for ${fruitId}: ${JSON.stringify(finalState.collection)}`);
+  }
   await screenshot(page, `${label}-08-reward`);
   return finalState;
+}
+
+async function openStickerBook(page, pointer) {
+  await openMenuIfNeeded(page, pointer);
+  const menuState = await readState(page);
+  const book = menuState.interactiveTargets.stickerBookButton;
+  await pointer.click(book.x + book.w / 2, book.y + book.h / 2);
+  await page.waitForTimeout(250);
+  const bookState = await readState(page);
+  expectMode(bookState, "book");
+  await screenshot(page, "99-sticker-book");
+  const back = bookState.interactiveTargets.backButton;
+  await pointer.click(back.x + back.w / 2, back.y + back.h / 2);
+  await page.waitForTimeout(250);
+  expectMode(await readState(page), "menu");
 }
 
 (async () => {
@@ -146,6 +173,7 @@ async function playRound(page, pointer, label, fruitId) {
   });
   page.on("pageerror", (error) => errors.push(String(error)));
 
+  await page.addInitScript(() => localStorage.removeItem("kingdomKitchenStickers"));
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(300);
   const pointer = await makePointer(page);
@@ -157,6 +185,7 @@ async function playRound(page, pointer, label, fruitId) {
   finalStates.push(await playRound(page, pointer, "04-orange", "orange"));
   const finalState = finalStates.at(-1);
   fs.writeFileSync(path.join(outDir, "final-state.json"), JSON.stringify(finalState, null, 2), "utf8");
+  await openStickerBook(page, pointer);
 
   if (errors.length) {
     fs.writeFileSync(path.join(outDir, "errors.json"), JSON.stringify(errors, null, 2), "utf8");

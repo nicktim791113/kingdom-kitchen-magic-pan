@@ -60,11 +60,94 @@
     const VIEW = { w: 960, h: 540 };
     const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     const FRUITS = [
-      { id: "apple", name: "蘋果", color: "#ef3f38" },
-      { id: "banana", name: "香蕉", color: "#ffd54f" },
-      { id: "strawberry", name: "草莓", color: "#ef476f" },
-      { id: "orange", name: "橘子", color: "#ff9800" }
+      {
+        id: "apple",
+        name: "蘋果",
+        soupName: "蘋果魔法湯",
+        color: "#ef3f38",
+        soupColor: "#ffb74d",
+        accent: "#ffecb3",
+        prep: { kind: "slice", title: "魔法切蘋果", line1: "點三下", line2: "切成小塊", speech: "點蘋果三下切小塊。" }
+      },
+      {
+        id: "banana",
+        name: "香蕉",
+        soupName: "香蕉奶香湯",
+        color: "#ffd54f",
+        soupColor: "#ffe082",
+        accent: "#fff59d",
+        prep: { kind: "peel", title: "剝開香蕉皮", line1: "拉一拉", line2: "剝開香蕉", speech: "拉一拉，把香蕉皮剝開。" }
+      },
+      {
+        id: "strawberry",
+        name: "草莓",
+        soupName: "草莓甜甜湯",
+        color: "#ef476f",
+        soupColor: "#f48fb1",
+        accent: "#ffc1cc",
+        prep: { kind: "pluck", title: "摘掉小葉子", line1: "點葉子", line2: "摘乾淨", speech: "點草莓葉子摘乾淨。" }
+      },
+      {
+        id: "orange",
+        name: "橘子",
+        soupName: "橘子陽光湯",
+        color: "#ff9800",
+        soupColor: "#ffcc80",
+        accent: "#ffe0b2",
+        prep: { kind: "segment", title: "分成橘子瓣", line1: "點三下", line2: "分小瓣", speech: "點橘子三下分小瓣。" }
+      }
     ];
+
+    const GUESTS = [
+      { id: "princess", name: "小公主", color: "#f48fb1", hat: "crown" },
+      { id: "knight", name: "小騎士", color: "#90caf9", hat: "helmet" },
+      { id: "wizard", name: "小魔法師", color: "#9575cd", hat: "wizard" },
+      { id: "prince", name: "小王子", color: "#ffcc80", hat: "crown" }
+    ];
+
+    function loadCollection() {
+      try {
+        const raw = JSON.parse(localStorage.getItem("kingdomKitchenStickers") || "{}");
+        const normalized = {};
+        for (const fruit of FRUITS) {
+          const entry = raw[fruit.id];
+          if (entry === true) normalized[fruit.id] = { count: 1 };
+          else if (typeof entry === "number") normalized[fruit.id] = { count: Math.max(0, entry) };
+          else if (entry && typeof entry.count === "number") normalized[fruit.id] = { count: Math.max(0, entry.count) };
+          else normalized[fruit.id] = { count: 0 };
+        }
+        return normalized;
+      } catch (error) {
+        return FRUITS.reduce((collection, fruit) => {
+          collection[fruit.id] = { count: 0 };
+          return collection;
+        }, {});
+      }
+    }
+
+    function saveCollection() {
+      try {
+        localStorage.setItem("kingdomKitchenStickers", JSON.stringify(state.collection));
+      } catch (error) {
+        // Storage can be unavailable in private contexts; the session collection still works.
+      }
+    }
+
+    function stickerCount(fruitId) {
+      return Math.max(0, state.collection[fruitId]?.count || 0);
+    }
+
+    function stickerStars(fruitId) {
+      return Math.min(3, stickerCount(fruitId));
+    }
+
+    function addSticker(fruitId) {
+      const entry = state.collection[fruitId] || { count: 0 };
+      entry.count += 1;
+      state.collection[fruitId] = entry;
+      saveCollection();
+      return entry.count;
+    }
 
     const state = {
       mode: "menu",
@@ -73,6 +156,7 @@
       selectedFruitIndex: 0,
       recipeIndex: 0,
       fruit: FRUITS[0],
+      guest: GUESTS[0],
       spoken: "",
       cuts: 0,
       cutFlash: 0,
@@ -89,13 +173,19 @@
       pot: { x: 650, y: 292, w: 230, h: 138 },
       stir: { active: false, lastAngle: 0, travel: 0 },
       particles: [],
-      mute: false
+      mute: false,
+      pendingNext: false,
+      rewardTime: 0,
+      lastRewardCount: 0,
+      collection: loadCollection()
     };
 
     const hit = {
       fruits: FRUITS.map((_, index) => ({ x: 136 + index * 148, y: 260, w: 120, h: 124 })),
       order: { x: 620, y: 382, w: 210, h: 70 },
       again: { x: 350, y: 392, w: 260, h: 72 },
+      book: { x: 674, y: 394, w: 214, h: 96 },
+      back: { x: 34, y: 34, w: 152, h: 58 },
       mute: { x: 848, y: 24, w: 74, h: 48 }
     };
 
@@ -146,15 +236,16 @@
       state.selectedFruitIndex = index;
       state.recipeIndex = index;
       state.fruit = FRUITS[index];
-      state.message = `今天做${state.fruit.name}魔法湯`;
+      state.message = `今天做${state.fruit.soupName}`;
     }
 
     function resetRound(index = state.selectedFruitIndex) {
       state.selectedFruitIndex = index;
       state.recipeIndex = index;
       state.fruit = FRUITS[state.recipeIndex];
+      state.guest = GUESTS[(index + stickerCount(state.fruit.id)) % GUESTS.length];
       state.mode = "order";
-      state.message = `小公主想喝${state.fruit.name}魔法湯`;
+      state.message = `${state.guest.name}想喝${state.fruit.soupName}`;
       state.cuts = 0;
       state.cutFlash = 0;
       state.wash = 0;
@@ -162,8 +253,11 @@
       state.drag = null;
       state.stir = { active: false, lastAngle: 0, travel: 0 };
       state.particles = [];
+      state.pendingNext = false;
+      state.rewardTime = 0;
+      state.lastRewardCount = 0;
       state.spoken = "";
-      speak(`小公主想喝${state.fruit.name}魔法湯。`);
+      speak(`${state.guest.name}想喝${state.fruit.soupName}。`);
     }
 
     function returnToMenu() {
@@ -171,6 +265,7 @@
       state.message = `選${state.fruit.name}或換一個水果`;
       state.drag = null;
       state.stir.active = false;
+      state.pendingNext = false;
       state.spoken = "";
     }
 
@@ -179,11 +274,27 @@
       state.message = message;
       state.drag = null;
       state.stir.active = false;
+      state.pendingNext = false;
       if (mode === "wash") speak(`幫${state.fruit.name}洗一洗。`);
-      if (mode === "cut") speak(`點一點${state.fruit.name}，切成小塊。`);
+      if (mode === "cut") speak(state.fruit.prep.speech);
       if (mode === "cook") speak(`把${state.fruit.name}放進鍋鍋裡。`);
       if (mode === "stir") speak("繞圈圈攪一攪。");
-      if (mode === "reward") speak("完成了，好香喔。");
+      if (mode === "reward") {
+        state.rewardTime = 0;
+        state.lastRewardCount = addSticker(state.fruit.id);
+        speak("完成了，好香喔。貼紙到手。");
+      }
+    }
+
+    function finishPrep() {
+      if (state.pendingNext) return;
+      state.pendingNext = true;
+      state.cuts = 3;
+      spawnBurst(state.apple.x, state.apple.y - 20, state.fruit.accent, 28);
+      audio.beep(820, 0.14, "triangle");
+      setTimeout(() => {
+        if (state.mode === "cut") setMode("cook", `把${state.fruit.name}放進鍋鍋`);
+      }, 650);
     }
 
     function posFromEvent(event) {
@@ -227,6 +338,14 @@
       }
 
       if (state.mode === "menu") {
+        if (inRect(point, hit.book)) {
+          state.mode = "book";
+          state.message = "我的貼紙書";
+          state.drag = null;
+          audio.beep(620, 0.08, "triangle");
+          return;
+        }
+
         const fruitIndex = hit.fruits.findIndex((rect) => inRect(point, rect));
         if (fruitIndex >= 0) {
           selectFruit(fruitIndex);
@@ -234,6 +353,12 @@
           resetRound(fruitIndex);
           return;
         }
+        return;
+      }
+
+      if (state.mode === "book" && inRect(point, hit.back)) {
+        audio.beep(500, 0.07, "triangle");
+        returnToMenu();
         return;
       }
 
@@ -250,11 +375,17 @@
       }
 
       if (state.mode === "cut" && dist(point, state.apple) < 95) {
+        if (state.fruit.prep.kind === "peel") {
+          state.drag = { type: "peel", last: point };
+          audio.beep(520, 0.06, "triangle");
+          return;
+        }
+
         state.cuts = Math.min(3, state.cuts + 1);
         state.cutFlash = 0.22;
-        spawnBurst(state.apple.x + 32, state.apple.y - 28, "#ffecb3", 10);
-        audio.beep(760 + state.cuts * 70, 0.07, "square");
-        if (state.cuts >= 3) setTimeout(() => setMode("cook", `拖曳${state.fruit.name}放進鍋鍋`), 700);
+        spawnBurst(point.x, point.y, state.fruit.accent, 12);
+        audio.beep(760 + state.cuts * 70, 0.07, "triangle");
+        if (state.cuts >= 3) finishPrep();
         return;
       }
 
@@ -290,8 +421,20 @@
           if (state.wash >= 1) {
             spawnBurst(state.apple.x, state.apple.y, "#4fc3f7", 22);
             audio.beep(720, 0.12);
-            setTimeout(() => setMode("cut", `點${state.fruit.name}三下切小塊`), 240);
+            setTimeout(() => setMode("cut", state.fruit.prep.title), 240);
           }
+        }
+        state.drag.last = point;
+        return;
+      }
+
+      if (state.mode === "cut" && state.drag?.type === "peel") {
+        const moved = dist(point, state.drag.last);
+        if (dist(point, state.apple) < 130) {
+          state.cuts = Math.min(3, state.cuts + moved / 64);
+          state.cutFlash = 0.18;
+          if (moved > 2) spawnBurst(point.x, point.y, state.fruit.accent, 1);
+          if (state.cuts >= 3) finishPrep();
         }
         state.drag.last = point;
         return;
@@ -313,9 +456,9 @@
         state.stir.lastAngle = angle;
         if (Math.random() > 0.55) spawnBurst(point.x, point.y, "#fff176", 1);
         if (state.stir.travel >= Math.PI * 4.2) {
-          spawnBurst(center.x, center.y - 35, "#ffecb3", 34);
+          spawnBurst(center.x, center.y - 35, state.fruit.accent, 34);
           audio.beep(860, 0.16, "triangle");
-          setMode("reward", `${state.fruit.name}魔法湯完成了`);
+          setMode("reward", `${state.fruit.soupName}完成了`);
         }
       }
     }
@@ -346,6 +489,7 @@
     function update(dt) {
       state.time += dt;
       state.cutFlash = Math.max(0, state.cutFlash - dt);
+      if (state.mode === "reward") state.rewardTime += dt;
       for (const p of state.particles) {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -427,6 +571,7 @@
       ctx.font = "800 25px system-ui";
       ctx.fillText("點一個水果開始料理", VIEW.w / 2, 226);
       FRUITS.forEach((fruit, index) => drawFruitChoice(fruit, index, hit.fruits[index]));
+      drawStickerBookPreview(hit.book.x, hit.book.y);
     }
 
     function drawFruitChoice(fruit, index, rect) {
@@ -439,12 +584,22 @@
       ctx.textBaseline = "middle";
       ctx.font = "900 23px system-ui";
       ctx.fillText(fruit.name, rect.x + rect.w / 2, rect.y + 98 + bounce);
+      if (stickerCount(fruit.id) > 0) {
+        ctx.fillStyle = "#ffca28";
+        ctx.beginPath();
+        ctx.arc(rect.x + rect.w - 18, rect.y + 20 + bounce, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 15px system-ui";
+        ctx.fillText("✓", rect.x + rect.w - 18, rect.y + 21 + bounce);
+      }
     }
 
     function drawOrder() {
       drawKitchen();
       drawChef(210, 318, 1.22, true);
-      drawSpeech(326, 160, 430, 140, "我想喝", `${state.fruit.name}魔法湯`);
+      drawGuest(872, 288, 0.64, state.guest, true);
+      drawSpeech(326, 150, 430, 134, `${state.guest.name}想喝`, state.fruit.soupName);
       drawFruit(state.fruit.id, 530, 354, 52, 1);
       drawButton(hit.order, "好呀", "#66bb6a");
     }
@@ -467,17 +622,17 @@
 
     function drawCut() {
       drawWorkScene();
-      drawSpeech(98, 138, 292, 92, "點三下", "切成小塊");
+      drawSpeech(98, 138, 292, 92, state.fruit.prep.line1, state.fruit.prep.line2);
       drawCuttingBoard(326, 260, 260, 132);
-      drawCutStageApple(state.apple.x, state.apple.y, state.cuts);
-      drawKnife(state.apple.x + 82, state.apple.y - 92 + (state.cutFlash > 0 ? 38 : Math.sin(state.time * 5) * 5), state.cutFlash);
-      drawProgress(338, 438, 284, state.cuts / 3, "#ffb74d");
+      drawPrepStage(state.apple.x, state.apple.y, state.cuts);
+      drawMagicWand(state.apple.x + 88, state.apple.y - 88 + (state.cutFlash > 0 ? 28 : Math.sin(state.time * 5) * 5), state.cutFlash);
+      drawProgress(338, 438, 284, state.cuts / 3, state.fruit.accent);
     }
 
     function drawCook() {
       drawWorkScene();
       drawSpeech(76, 138, 330, 92, "拖到鍋鍋", "輕輕放進去");
-      drawPot(state.pot.x, state.pot.y, 1);
+      drawPot(state.pot.x, state.pot.y, 1, state.fruit.soupColor);
       drawFruit(state.fruit.id, state.apple.x, state.apple.y, 46, 0.96);
       const center = potCenter();
       ctx.strokeStyle = "rgba(255, 213, 79, 0.82)";
@@ -492,7 +647,7 @@
     function drawStir() {
       drawWorkScene();
       drawSpeech(70, 138, 336, 92, "繞圈圈", "攪一攪");
-      drawPot(state.pot.x, state.pot.y, 1.08);
+      drawPot(state.pot.x, state.pot.y, 1.08, state.fruit.soupColor);
       const center = potCenter();
       ctx.strokeStyle = "#fff59d";
       ctx.lineWidth = 10;
@@ -506,10 +661,55 @@
     function drawReward() {
       drawKitchen();
       drawChef(210, 318, 1.22, true);
-      drawSpeech(326, 142, 430, 122, "完成了", "好香喔");
-      drawSoupBowl(520, 354, 1.15);
-      drawSticker(705, 350);
+      drawGuest(872, 304, 0.64, state.guest, true);
+      drawSpeech(326, 136, 430, 122, "完成了", "貼紙到手");
+      drawSoupBowl(520, 354, 1.15, state.fruit.soupColor);
+      const fly = Math.min(1, state.rewardTime / 0.75);
+      const stickerX = 705 + fly * 34;
+      const stickerY = 350 - Math.sin(fly * Math.PI) * 28;
+      drawSticker(stickerX, stickerY);
+      drawStars(705, 446, stickerStars(state.fruit.id), 20);
+      ctx.fillStyle = "#5d4037";
+      ctx.font = "800 20px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`第 ${state.lastRewardCount} 碗`, 705, 482);
       drawButton(hit.again, "再選水果", "#42a5f5");
+    }
+
+    function drawStickerBookScreen() {
+      drawKitchen();
+      drawButton(hit.back, "回選單", "#66bb6a");
+      ctx.fillStyle = "#5d4037";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 44px system-ui";
+      ctx.fillText("我的貼紙書", VIEW.w / 2, 92);
+      ctx.font = "700 23px system-ui";
+      ctx.fillText("多做幾碗，貼紙會變得更亮", VIEW.w / 2, 136);
+
+      FRUITS.forEach((fruit, index) => {
+        const x = 126 + index * 206;
+        const y = 188;
+        const count = stickerCount(fruit.id);
+        roundRect(x, y, 158, 236, 8, "#a1887f");
+        roundRect(x + 8, y + 8, 142, 220, 8, count > 0 ? "#fff8e1" : "#d7ccc8");
+        if (count > 0) {
+          drawFruit(fruit.id, x + 79, y + 74, 46, 1);
+          drawStars(x + 79, y + 138, stickerStars(fruit.id), 18);
+          ctx.fillStyle = "#5d4037";
+          ctx.font = "900 24px system-ui";
+          ctx.fillText(fruit.name, x + 79, y + 174);
+          ctx.font = "800 19px system-ui";
+          ctx.fillText(`完成 ${count} 碗`, x + 79, y + 204);
+        } else {
+          ctx.fillStyle = "#8d6e63";
+          ctx.font = "900 52px system-ui";
+          ctx.fillText("?", x + 79, y + 96);
+          ctx.font = "800 20px system-ui";
+          ctx.fillText("還沒拿到", x + 79, y + 174);
+        }
+      });
     }
 
     function drawWorkScene() {
@@ -565,6 +765,78 @@
       ctx.stroke();
       roundRect(-60, 54, 120, 98, 20, "#ef5350");
       roundRect(-40, 66, 80, 82, 12, "#ffffff");
+      ctx.restore();
+    }
+
+    function drawGuest(x, y, scale = 1, guest = GUESTS[0], happy = false) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#5d4037";
+      ctx.beginPath();
+      ctx.arc(0, 66, 54, 0, Math.PI * 2);
+      ctx.fill();
+      roundRect(-50, 46, 100, 96, 18, guest.color);
+      ctx.fillStyle = "#ffd7b5";
+      ctx.beginPath();
+      ctx.arc(0, -8, 52, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (guest.hat === "wizard") {
+        ctx.fillStyle = "#7e57c2";
+        ctx.beginPath();
+        ctx.moveTo(-44, -44);
+        ctx.lineTo(0, -112);
+        ctx.lineTo(44, -44);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#ffd54f";
+        ctx.beginPath();
+        ctx.arc(0, -82, 7, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (guest.hat === "helmet") {
+        ctx.fillStyle = "#b0bec5";
+        ctx.beginPath();
+        ctx.arc(0, -28, 48, Math.PI, Math.PI * 2);
+        ctx.lineTo(48, -12);
+        ctx.lineTo(-48, -12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#78909c";
+        ctx.fillRect(-42, -18, 84, 10);
+      } else {
+        ctx.fillStyle = "#ffca28";
+        ctx.beginPath();
+        ctx.moveTo(-42, -44);
+        ctx.lineTo(-24, -82);
+        ctx.lineTo(0, -52);
+        ctx.lineTo(24, -82);
+        ctx.lineTo(42, -44);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#4e342e";
+      ctx.beginPath();
+      ctx.arc(-18, -14, 6, 0, Math.PI * 2);
+      ctx.arc(18, -14, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#4e342e";
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      if (happy) ctx.arc(0, 4, 20, 0.2, Math.PI - 0.2);
+      else {
+        ctx.moveTo(-16, 8);
+        ctx.lineTo(16, 8);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 20px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(guest.name, 0, 104);
       ctx.restore();
     }
 
@@ -711,7 +983,7 @@
       ctx.restore();
     }
 
-    function drawStrawberry(x, y, r, scale = 1) {
+    function drawStrawberry(x, y, r, scale = 1, leafAmount = 1) {
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
@@ -741,11 +1013,15 @@
       ctx.closePath();
       ctx.fill();
 
-      ctx.fillStyle = "#2e7d32";
-      for (let i = -2; i <= 2; i++) {
-        ctx.beginPath();
-        ctx.ellipse(i * r * 0.12, -r * 0.54, r * 0.14, r * 0.26, i * 0.55, 0, Math.PI * 2);
-        ctx.fill();
+      if (leafAmount > 0) {
+        ctx.fillStyle = "#2e7d32";
+        ctx.globalAlpha = leafAmount;
+        for (let i = -2; i <= 2; i++) {
+          ctx.beginPath();
+          ctx.ellipse(i * r * 0.12, -r * 0.54, r * 0.14, r * 0.26, i * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
 
       ctx.fillStyle = "#ffe082";
@@ -829,6 +1105,83 @@
       ctx.stroke();
     }
 
+    function drawPrepStage(x, y, progress) {
+      if (state.fruit.prep.kind === "peel") return drawBananaPeelStage(x, y, progress);
+      if (state.fruit.prep.kind === "pluck") return drawStrawberryPluckStage(x, y, progress);
+      if (state.fruit.prep.kind === "segment") return drawOrangeSegmentStage(x, y, progress);
+      drawCutStageApple(x, y, progress);
+    }
+
+    function drawBananaPeelStage(x, y, progress) {
+      const amount = Math.min(1, progress / 3);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-0.1);
+
+      ctx.fillStyle = "#fff7c2";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 88, 26, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#f9a825";
+      ctx.lineWidth = 18;
+      ctx.lineCap = "round";
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(-74 + i * 6, -2);
+        ctx.quadraticCurveTo(-18 + i * 22, 26 + amount * 52, 50 + i * 12, -10 + amount * 22);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#8d6e63";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-74, -2);
+      ctx.quadraticCurveTo(-14, 22 + amount * 40, 58, -8 + amount * 16);
+      ctx.stroke();
+
+      ctx.restore();
+      if (progress >= 2.95) {
+        drawFruitSlice("banana", x - 38, y + 4, 0.72, -0.25);
+        drawFruitSlice("banana", x + 34, y + 4, 0.72, 0.2);
+      }
+    }
+
+    function drawStrawberryPluckStage(x, y, progress) {
+      drawStrawberry(x, y + 6, 58, 1, Math.max(0, 1 - progress / 3));
+      const leavesLeft = Math.max(0, 3 - Math.floor(progress));
+      ctx.fillStyle = "#2e7d32";
+      for (let i = 0; i < leavesLeft; i++) {
+        const lx = x - 34 + i * 34;
+        ctx.beginPath();
+        ctx.ellipse(lx, y - 52 - Math.sin(state.time * 4 + i) * 3, 16, 26, (i - 1) * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (progress > 0) {
+        for (let i = 0; i < Math.min(3, Math.floor(progress)); i++) {
+          ctx.fillStyle = "#66bb6a";
+          ctx.beginPath();
+          ctx.ellipse(x + 82 + i * 20, y - 28 + i * 18, 10, 18, i * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawOrangeSegmentStage(x, y, progress) {
+      if (progress === 0) {
+        drawFruit("orange", x, y, 58, 1);
+        drawCutGuide(x, y - 56, 112);
+        return;
+      }
+
+      const pieces = Math.min(4, Math.floor(progress) + 1);
+      for (let i = 0; i < pieces; i++) {
+        const angle = -0.5 + i * 0.34;
+        drawFruitSlice("orange", x - 70 + i * 46, y + Math.abs(i - 1.5) * 6, 0.62, angle);
+      }
+      if (progress < 3) drawCutGuide(x + 8, y - 52, 104);
+    }
+
     function drawCutStageApple(x, y, cuts) {
       if (cuts === 0) {
         drawFruit(state.fruit.id, x, y - 2, 58, 1);
@@ -897,6 +1250,47 @@
       ctx.ellipse(4, -10, 3, 6, -0.2, 0, Math.PI * 2);
       ctx.ellipse(8, 12, 3, 6, 0.2, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+    }
+
+    function drawMagicWand(x, y, flash) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-0.55);
+      ctx.strokeStyle = "#7e57c2";
+      ctx.lineWidth = 10;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-68, 58);
+      ctx.lineTo(28, -38);
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffd54f";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? 26 : 11;
+        const a = -Math.PI / 2 + i * Math.PI / 5;
+        const px = 28 + Math.cos(a) * r;
+        const py = -38 + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      if (flash > 0) {
+        ctx.strokeStyle = "rgba(255, 245, 157, 0.85)";
+        ctx.lineWidth = 5;
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(46 + i * 10, -62 + i * 8);
+          ctx.lineTo(70 + i * 8, -80 + i * 3);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     }
 
@@ -1011,7 +1405,7 @@
       ctx.restore();
     }
 
-    function drawPot(x, y, scale = 1) {
+    function drawPot(x, y, scale = 1, soupColor = "#ffcc80") {
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
@@ -1022,16 +1416,20 @@
       ctx.beginPath();
       ctx.ellipse(115, 44, 92, 24, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#ffcc80";
+      ctx.fillStyle = soupColor;
       ctx.beginPath();
       ctx.ellipse(115, 44, 72, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(94, 38, 24, 6, -0.1, 0, Math.PI * 2);
       ctx.fill();
       roundRect(-26, 65, 42, 25, 10, "#1e88e5");
       roundRect(214, 65, 42, 25, 10, "#1e88e5");
       ctx.restore();
     }
 
-    function drawSoupBowl(x, y, scale = 1) {
+    function drawSoupBowl(x, y, scale = 1, soupColor = "#ffb74d") {
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
@@ -1039,10 +1437,12 @@
       ctx.beginPath();
       ctx.ellipse(0, 0, 96, 38, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#ffb74d";
+      ctx.fillStyle = soupColor;
       ctx.beginPath();
       ctx.ellipse(0, -4, 72, 24, 0, 0, Math.PI * 2);
       ctx.fill();
+      drawFruitSlice(state.fruit.id, -26, -4, 0.34, -0.35);
+      drawFruitSlice(state.fruit.id, 30, -2, 0.3, 0.28);
       ctx.fillStyle = "#42a5f5";
       ctx.beginPath();
       ctx.moveTo(-82, 8);
@@ -1076,6 +1476,61 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("貼紙", 0, 48);
+      ctx.restore();
+    }
+
+    function drawStickerBookPreview(x, y) {
+      roundRect(x, y, 214, 96, 8, "#fff8e1");
+      ctx.strokeStyle = "#8d6e63";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x + 8, y + 8, 198, 80);
+      ctx.fillStyle = "#5d4037";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "800 20px system-ui";
+      ctx.fillText("貼紙書", x + 107, y + 24);
+
+      FRUITS.forEach((fruit, index) => {
+        const sx = x + 36 + index * 48;
+        const sy = y + 58;
+        const count = stickerCount(fruit.id);
+        roundRect(sx - 18, sy - 20, 36, 40, 6, count > 0 ? "#ffffff" : "#d7ccc8");
+        if (count > 0) {
+          drawFruit(fruit.id, sx, sy - 2, 13, 1);
+          drawStars(sx, sy + 22, stickerStars(fruit.id), 6);
+        } else {
+          ctx.fillStyle = "#a1887f";
+          ctx.font = "900 18px system-ui";
+          ctx.fillText("?", sx, sy);
+        }
+      });
+    }
+
+    function drawStars(x, y, count, size = 14) {
+      for (let i = 0; i < 3; i++) {
+        const sx = x + (i - 1) * size * 1.25;
+        drawStar(sx, y, size * 0.5, i < count ? "#ffca28" : "#d7ccc8");
+      }
+    }
+
+    function drawStar(x, y, r, color) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = Math.max(1, r * 0.18);
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const radius = i % 2 === 0 ? r : r * 0.45;
+        const angle = -Math.PI / 2 + i * Math.PI / 5;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
       ctx.restore();
     }
 
@@ -1142,6 +1597,7 @@
     function render() {
       ctx.clearRect(0, 0, VIEW.w, VIEW.h);
       if (state.mode === "menu") drawTitle();
+      if (state.mode === "book") drawStickerBookScreen();
       if (state.mode === "order") drawOrder();
       if (state.mode === "wash") drawWash();
       if (state.mode === "cut") drawCut();
@@ -1157,18 +1613,29 @@
         coordinateSystem: "Canvas coordinates, origin top-left, x right, y down, size 960x540.",
         mode: state.mode,
         message: state.message,
-        fruit: { id: state.fruit.id, name: state.fruit.name },
+        fruit: { id: state.fruit.id, name: state.fruit.name, soupName: state.fruit.soupName, soupColor: state.fruit.soupColor },
+        guest: { id: state.guest.id, name: state.guest.name },
         progress: {
           wash: Number(state.wash.toFixed(2)),
-          cuts: state.cuts,
+          prep: Number(Math.min(1, state.cuts / 3).toFixed(2)),
+          prepKind: state.fruit.prep.kind,
+          cuts: Number(state.cuts.toFixed(2)),
           stir: Number(Math.min(1, state.stir.travel / (Math.PI * 4.2)).toFixed(2))
         },
+        collection: FRUITS.map((fruit) => ({
+          id: fruit.id,
+          count: stickerCount(fruit.id),
+          stars: stickerStars(fruit.id),
+          collected: stickerCount(fruit.id) > 0
+        })),
         interactiveTargets: {
           fruitButtons: hit.fruits.map((rect, index) => ({ ...rect, id: FRUITS[index].id, name: FRUITS[index].name })),
           orderButton: hit.order,
           apple: { x: Math.round(state.apple.x), y: Math.round(state.apple.y), r: Math.round(state.apple.r || 46) },
           pot: { x: Math.round(center.x), y: Math.round(center.y), r: 140 },
           againButton: hit.again,
+          stickerBookButton: hit.book,
+          backButton: hit.back,
           muteButton: hit.mute
         }
       };
