@@ -149,6 +149,49 @@
       return entry.count;
     }
 
+    const fruitSprites = {};
+    for (const fruit of FRUITS) {
+      const image = new Image();
+      image.src = `assets/sprites/fruit/${fruit.id}.png`;
+      fruitSprites[fruit.id] = image;
+    }
+    const prepSpriteFiles = {
+      apple: "apple-slices",
+      banana: "banana-peeled",
+      strawberry: "strawberry-clean",
+      orange: "orange-wedges"
+    };
+    const prepSprites = {};
+    for (const fruit of FRUITS) {
+      const image = new Image();
+      image.src = `assets/sprites/prep/${prepSpriteFiles[fruit.id]}.png`;
+      prepSprites[fruit.id] = image;
+    }
+    const characterSpriteFiles = {
+      chef: "chef",
+      princess: "princess",
+      knight: "knight",
+      wizard: "wizard",
+      prince: "prince"
+    };
+    const characterSprites = {};
+    for (const id of Object.keys(characterSpriteFiles)) {
+      const image = new Image();
+      image.src = `assets/sprites/characters/${characterSpriteFiles[id]}.png`;
+      characterSprites[id] = image;
+    }
+    const environmentSpriteFiles = {
+      kitchen: "kitchen",
+      pot: "pot",
+      soupBowl: "soup-bowl"
+    };
+    const environmentSprites = {};
+    for (const id of Object.keys(environmentSpriteFiles)) {
+      const image = new Image();
+      image.src = `assets/sprites/environment/${environmentSpriteFiles[id]}.png`;
+      environmentSprites[id] = image;
+    }
+
     const state = {
       mode: "menu",
       time: 0,
@@ -567,6 +610,11 @@
     }
 
     function drawKitchen() {
+      if (drawKitchenSprite()) {
+        drawMute();
+        return;
+      }
+
       ctx.fillStyle = "#fff7d6";
       ctx.fillRect(0, 0, VIEW.w, VIEW.h);
       ctx.fillStyle = "#a5d6a7";
@@ -692,9 +740,11 @@
       drawSpeech(98, 138, 292, 92, state.fruit.prep.line1, state.fruit.prep.line2);
       drawCuttingBoard(326, 260, 260, 132);
       drawPrepStage(state.apple.x, state.apple.y, state.cuts);
-      drawCutMarks();
-      drawCutTrail();
-      drawMagicWand(state.apple.x + 88, state.apple.y - 88 + (state.cutFlash > 0 ? 28 : Math.sin(state.time * 5) * 5), state.cutFlash);
+      if (state.cuts < 2.95) {
+        drawCutMarks();
+        drawCutTrail();
+        drawMagicWand(state.apple.x + 88, state.apple.y - 88 + (state.cutFlash > 0 ? 28 : Math.sin(state.time * 5) * 5), state.cutFlash);
+      }
       drawProgress(338, 438, 284, state.cuts / 3, state.fruit.accent);
     }
 
@@ -848,6 +898,8 @@
     }
 
     function drawChef(x, y, scale = 1, happy = false) {
+      if (drawCharacterSprite("chef", x, y + 10 * scale, 190 * scale, 264 * scale)) return;
+
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
@@ -888,6 +940,8 @@
     }
 
     function drawGuest(x, y, scale = 1, guest = GUESTS[0], happy = false) {
+      if (drawCharacterSprite(guest.id, x, y + 5 * scale, 150 * scale, 228 * scale)) return;
+
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
@@ -959,7 +1013,40 @@
       ctx.restore();
     }
 
-    function drawFruit(kind, x, y, r, scale = 1) {
+    function drawLoadedSprite(image, x, y, maxW, maxH = maxW) {
+      if (!image || !image.complete || !image.naturalWidth) return false;
+      const ratio = Math.min(maxW / image.naturalWidth, maxH / image.naturalHeight);
+      const w = image.naturalWidth * ratio;
+      const h = image.naturalHeight * ratio;
+      ctx.drawImage(image, x - w / 2, y - h / 2, w, h);
+      return true;
+    }
+
+    function drawFruitSprite(kind, x, y, r, scale = 1) {
+      return drawLoadedSprite(fruitSprites[kind], x, y, r * 2.08 * scale);
+    }
+
+    function drawPrepSprite(kind, x, y, maxW = 226, maxH = 140) {
+      return drawLoadedSprite(prepSprites[kind], x, y, maxW, maxH);
+    }
+
+    function drawCharacterSprite(id, x, y, maxW, maxH) {
+      return drawLoadedSprite(characterSprites[id], x, y, maxW, maxH);
+    }
+
+    function drawEnvironmentSprite(id, x, y, maxW, maxH) {
+      return drawLoadedSprite(environmentSprites[id], x, y, maxW, maxH);
+    }
+
+    function drawKitchenSprite() {
+      const image = environmentSprites.kitchen;
+      if (!image || !image.complete || !image.naturalWidth) return false;
+      ctx.drawImage(image, 0, 0, VIEW.w, VIEW.h);
+      return true;
+    }
+
+    function drawFruit(kind, x, y, r, scale = 1, options = {}) {
+      if (!options.forceCanvas && drawFruitSprite(kind, x, y, r, scale)) return;
       if (kind === "banana") return drawBanana(x, y, r, scale);
       if (kind === "strawberry") return drawStrawberry(x, y, r, scale);
       if (kind === "orange") return drawOrange(x, y, r, scale);
@@ -1225,6 +1312,7 @@
     }
 
     function drawPrepStage(x, y, progress) {
+      if (progress >= 2.95 && drawPrepSprite(state.fruit.id, x, y + 2)) return;
       if (state.fruit.prep.kind === "peel") return drawBananaPeelStage(x, y, progress);
       if (state.fruit.prep.kind === "pluck") return drawStrawberryPluckStage(x, y, progress);
       if (state.fruit.prep.kind === "segment") return drawOrangeSegmentStage(x, y, progress);
@@ -1525,6 +1613,24 @@
     }
 
     function drawPot(x, y, scale = 1, soupColor = "#ffcc80") {
+      if (drawEnvironmentSprite("pot", x + 115 * scale, y + 82 * scale, 282 * scale, 168 * scale)) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        ctx.globalAlpha = 0.82;
+        ctx.fillStyle = soupColor;
+        ctx.beginPath();
+        ctx.ellipse(115, 44, 70, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.ellipse(94, 38, 24, 6, -0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
@@ -1549,6 +1655,22 @@
     }
 
     function drawSoupBowl(x, y, scale = 1, soupColor = "#ffb74d") {
+      if (drawEnvironmentSprite("soupBowl", x, y - 8 * scale, 198 * scale, 188 * scale)) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        ctx.globalAlpha = 0.84;
+        ctx.fillStyle = soupColor;
+        ctx.beginPath();
+        ctx.ellipse(0, -2, 72, 22, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        drawFruitSlice(state.fruit.id, -26, -4, 0.34, -0.35);
+        drawFruitSlice(state.fruit.id, 30, -2, 0.3, 0.28);
+        ctx.restore();
+        return;
+      }
+
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(scale, scale);
