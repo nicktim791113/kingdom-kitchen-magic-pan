@@ -183,6 +183,7 @@ async function openStickerBook(page, pointer) {
   finalStates.push(await playRound(page, pointer, "02-banana", "banana"));
   finalStates.push(await playRound(page, pointer, "03-strawberry", "strawberry"));
   finalStates.push(await playRound(page, pointer, "04-orange", "orange"));
+  finalStates.push(await playRound(page, pointer, "05-carrot", "carrot"));
   const finalState = finalStates.at(-1);
   fs.writeFileSync(path.join(outDir, "final-state.json"), JSON.stringify(finalState, null, 2), "utf8");
   await openStickerBook(page, pointer);
