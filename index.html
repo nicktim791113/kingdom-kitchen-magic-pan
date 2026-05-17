@@ -260,6 +260,9 @@
       pot: { x: 650, y: 292, w: 230, h: 138 },
       stir: { active: false, lastAngle: 0, travel: 0 },
       particles: [],
+      // 煮的階段：把切好的水果切成多個小片，一片一片拖進鍋裡
+      pieces: [],
+      cookAdvancing: false,
       mute: false,
       pendingNext: false,
       rewardTime: 0,
@@ -375,15 +378,47 @@
       state.cutTrail = [];
       state.stir.active = false;
       state.pendingNext = false;
+      state.cookAdvancing = false;
       if (mode === "cut") state.cutMarks = [];
+      if (mode === "cook") initCookPieces();
       if (mode === "wash") speak(`幫${state.fruit.name}洗一洗。`);
       if (mode === "cut") speak(state.fruit.prep.speech);
-      if (mode === "cook") speak(`把${state.fruit.name}放進鍋鍋裡。`);
+      if (mode === "cook") speak(`把切好的${state.fruit.name}一片一片放進鍋鍋裡。`);
       if (mode === "stir") speak("繞圈圈攪一攪。");
       if (mode === "reward") {
         state.rewardTime = 0;
         state.lastRewardCount = addSticker(state.fruit.id);
         speak("完成了，好香喔。貼紙到手。");
+      }
+    }
+
+    // 把切好的水果初始化為 4 個獨立的小片，整齊排在砧板/檯面上
+    function initCookPieces() {
+      state.pieces = [];
+      const count = 4;
+      const trayY = 320;
+      const startX = 220;
+      const gap = 78;
+      const rotations = [-0.25, -0.1, 0.12, 0.28];
+      for (let i = 0; i < count; i++) {
+        const baseX = startX + i * gap;
+        state.pieces.push({
+          id: i,
+          x: baseX,
+          y: trayY + Math.sin(i) * 4,
+          baseX,
+          baseY: trayY + Math.sin(i) * 4,
+          rotation: rotations[i] || 0,
+          baseRotation: rotations[i] || 0,
+          scale: 0.9 + (i % 2) * 0.05,
+          inPot: false,
+          dragging: false,
+          // 落到鍋裡之後的位置（散落分布）
+          potOffsetX: (Math.random() - 0.5) * 70,
+          potOffsetY: (Math.random() - 0.5) * 14,
+          potRotation: (Math.random() - 0.5) * 0.6,
+          dropAnim: 0
+        });
       }
     }
 
@@ -540,9 +575,26 @@
         return;
       }
 
-      if (state.mode === "cook" && dist(point, state.apple) < 90) {
-        state.drag = { type: "apple", dx: state.apple.x - point.x, dy: state.apple.y - point.y };
-        audio.beep(480, 0.05);
+      if (state.mode === "cook") {
+        // 從後往前檢查（最上層的優先）
+        for (let i = state.pieces.length - 1; i >= 0; i--) {
+          const p = state.pieces[i];
+          if (p.inPot) continue;
+          if (dist(point, p) < 46) {
+            state.drag = {
+              type: "piece",
+              index: i,
+              dx: p.x - point.x,
+              dy: p.y - point.y
+            };
+            p.dragging = true;
+            // 把這片放到陣列最上層渲染
+            state.pieces.splice(i, 1);
+            state.pieces.push(p);
+            audio.beep(480 + i * 40, 0.05);
+            return;
+          }
+        }
         return;
       }
 
@@ -598,9 +650,17 @@
         return;
       }
 
-      if (state.mode === "cook" && state.drag?.type === "apple") {
-        state.apple.x = point.x + state.drag.dx;
-        state.apple.y = point.y + state.drag.dy;
+      if (state.mode === "cook" && state.drag?.type === "piece") {
+        const p = state.pieces[state.pieces.length - 1];
+        if (p) {
+          p.x = point.x + state.drag.dx;
+          p.y = point.y + state.drag.dy;
+          // 拖近鍋口時噴出小火花提示
+          const center = potCenter();
+          if (dist(p, center) < 120 && Math.random() > 0.7) {
+            spawnBurst(p.x, p.y + 16, state.fruit.accent, 1);
+          }
+        }
         return;
       }
 
@@ -630,18 +690,32 @@
         state.cutTrail = [];
       }
 
-      if (state.mode === "cook" && state.drag?.type === "apple") {
-        const center = potCenter();
-        if (dist(state.apple, center) < 140) {
-          state.apple.x = center.x;
-          state.apple.y = center.y - 8;
-          spawnBurst(center.x, center.y - 25, "#ffcc80", 26);
-          audio.beep(700, 0.12);
-          setMode("stir", "在鍋裡繞圈圈攪拌");
-        } else {
-          state.apple.x = 410;
-          state.apple.y = 315;
-          audio.beep(260, 0.07, "sine");
+      if (state.mode === "cook" && state.drag?.type === "piece") {
+        const p = state.pieces[state.pieces.length - 1];
+        if (p) {
+          const center = potCenter();
+          if (dist(p, center) < 130) {
+            // 進鍋！
+            p.inPot = true;
+            p.dragging = false;
+            p.dropAnim = 1; // 觸發掉落動畫
+            spawnBurst(center.x, center.y - 22, state.fruit.accent, 18);
+            spawnBurst(center.x, center.y - 8, state.fruit.soupColor, 10);
+            audio.beep(720, 0.14, "triangle");
+            // 檢查是否全部入鍋
+            if (state.pieces.every((piece) => piece.inPot) && !state.cookAdvancing) {
+              state.cookAdvancing = true;
+              setTimeout(() => {
+                if (state.mode === "cook") setMode("stir", "在鍋裡繞圈圈攪拌");
+              }, 700);
+            }
+          } else {
+            // 退回原位
+            p.x = p.baseX;
+            p.y = p.baseY;
+            p.dragging = false;
+            audio.beep(260, 0.07, "sine");
+          }
         }
       }
       state.drag = null;
@@ -663,6 +737,10 @@
         p.life -= dt;
       }
       state.particles = state.particles.filter((p) => p.life > 0);
+      // 切片落鍋動畫倒數
+      for (const piece of state.pieces) {
+        if (piece.dropAnim > 0) piece.dropAnim = Math.max(0, piece.dropAnim - dt * 2.2);
+      }
     }
 
     function drawKitchen() {
@@ -746,23 +824,61 @@
     }
 
     function drawFruitChoice(fruit, index, rect) {
-      const bounce = Math.sin(state.time * 3 + index) * 1.5;
-      roundRect(rect.x, rect.y + bounce, rect.w, rect.h, 8, "#a1887f");
-      roundRect(rect.x + 6, rect.y + 6 + bounce, rect.w - 12, rect.h - 12, 8, "#ffffff");
-      drawFruit(fruit.id, rect.x + rect.w / 2, rect.y + 48 + bounce, 38, 0.96);
+      const cardBob = Math.sin(state.time * 2.2 + index * 0.7) * 2.4;
+
+      // 卡片底部的柔和陰影 — 卡片越「浮起」陰影越淡且越散
+      ctx.save();
+      const cardShadow = ctx.createRadialGradient(
+        rect.x + rect.w / 2, rect.y + rect.h + 8, 4,
+        rect.x + rect.w / 2, rect.y + rect.h + 8, rect.w * 0.65
+      );
+      const sAlpha = 0.28 - cardBob * 0.018;
+      cardShadow.addColorStop(0, `rgba(78, 52, 30, ${sAlpha})`);
+      cardShadow.addColorStop(1, "rgba(78, 52, 30, 0)");
+      ctx.fillStyle = cardShadow;
+      ctx.beginPath();
+      ctx.ellipse(rect.x + rect.w / 2, rect.y + rect.h + 10, rect.w * 0.5, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 卡片邊框 + 內白
+      roundRect(rect.x, rect.y + cardBob, rect.w, rect.h, 8, "#a1887f");
+      roundRect(rect.x + 6, rect.y + 6 + cardBob, rect.w - 12, rect.h - 12, 8, "#ffffff");
+
+      // 卡片上半部加一層淡淡光澤，營造塑膠卡片的反光
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      const gloss = ctx.createLinearGradient(0, rect.y + cardBob, 0, rect.y + cardBob + rect.h * 0.55);
+      gloss.addColorStop(0, "rgba(255,255,255,0.85)");
+      gloss.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gloss;
+      roundRect(rect.x + 8, rect.y + 8 + cardBob, rect.w - 16, rect.h * 0.55, 8, "rgba(255,255,255,0.0)");
+      ctx.fillRect(rect.x + 8, rect.y + 8 + cardBob, rect.w - 16, rect.h * 0.45);
+      ctx.restore();
+
+      // 浮動水果（每顆有獨立相位 + 輕微傾斜）
+      drawFloatingFruit(
+        fruit.id,
+        rect.x + rect.w / 2,
+        rect.y + 48 + cardBob,
+        38,
+        0.96,
+        { bobSeed: index * 1.3, amplitude: 3.2, speed: 2.4, tilt: 0.07, glossAlpha: 0.34, shadowIntensity: 0.24 }
+      );
+
       ctx.fillStyle = "#5d4037";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.font = "900 23px system-ui";
-      ctx.fillText(fruit.name, rect.x + rect.w / 2, rect.y + 98 + bounce);
+      ctx.fillText(fruit.name, rect.x + rect.w / 2, rect.y + 98 + cardBob);
       if (stickerCount(fruit.id) > 0) {
         ctx.fillStyle = "#ffca28";
         ctx.beginPath();
-        ctx.arc(rect.x + rect.w - 18, rect.y + 20 + bounce, 12, 0, Math.PI * 2);
+        ctx.arc(rect.x + rect.w - 18, rect.y + 20 + cardBob, 12, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = "#ffffff";
         ctx.font = "900 15px system-ui";
-        ctx.fillText("✓", rect.x + rect.w - 18, rect.y + 21 + bounce);
+        ctx.fillText("✓", rect.x + rect.w - 18, rect.y + 21 + cardBob);
       }
     }
 
@@ -771,24 +887,227 @@
       drawChef(210, 318, 1.22, true);
       drawGuest(872, 288, 0.64, state.guest, true);
       drawSpeech(326, 150, 430, 134, `${state.guest.name}想喝`, state.fruit.soupName);
-      drawFruit(state.fruit.id, 530, 354, 52, 1);
+      drawFloatingFruit(state.fruit.id, 530, 354, 52, 1, { amplitude: 5, speed: 1.7, tilt: 0.08, glossAlpha: 0.38 });
       drawButton(hit.order, "好呀", "#66bb6a");
     }
 
     function drawWash() {
       drawWorkScene();
       drawSpeech(98, 138, 292, 92, "洗一洗", "乾乾淨淨");
+
+      // 水槽底部
+      drawWashBasin(state.apple.x, state.apple.y + 70);
+
+      // 水柱（從上方流向水果）
+      drawWaterStream(state.apple.x - 20, state.apple.y - 140, state.apple.x, state.apple.y - 12);
+
+      // 水果本體（浮在水流中，輕微上下擺動）
+      const phase = state.time * 2.2;
+      const lift = Math.sin(phase) * 3;
+      drawFloatShadow(state.apple.x, state.apple.y + state.apple.r * 0.6, state.apple.r, 4 + lift, 0.22);
+      ctx.save();
+      ctx.translate(0, lift);
       drawFruit(state.fruit.id, state.apple.x, state.apple.y, state.apple.r, 1);
+      // 髒污（隨洗淨進度淡化，並逐漸縮小）
       const alpha = 1 - state.wash;
       for (const d of state.dirt) {
         ctx.globalAlpha = Math.max(0, alpha);
-        ctx.fillStyle = "#795548";
+        const r = d.r * (0.45 + alpha * 0.55);
+        // 髒污用不規則的橢圓 + 紋理感
+        ctx.fillStyle = "rgba(74, 49, 28, 0.78)";
         ctx.beginPath();
-        ctx.arc(state.apple.x + d.x, state.apple.y + d.y, d.r, 0, Math.PI * 2);
+        ctx.ellipse(state.apple.x + d.x, state.apple.y + d.y, r * 1.1, r * 0.85, d.r * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(120, 80, 40, 0.55)";
+        ctx.beginPath();
+        ctx.arc(state.apple.x + d.x - r * 0.25, state.apple.y + d.y - r * 0.25, r * 0.4, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+
+      // 濕亮反光（洗得越乾淨，水果越亮）
+      drawWetSheen(state.apple.x, state.apple.y, state.apple.r, state.wash);
+      ctx.restore();
+
+      // 拖動時手指處的水花
+      if (state.mode === "wash" && state.drag?.type === "wash" && state.drag.last) {
+        drawWaterSplash(state.drag.last.x, state.drag.last.y);
+      }
+
+      // 飄起的肥皂泡
+      drawSoapBubbles(state.apple.x, state.apple.y, state.wash);
+
       drawProgress(338, 438, 284, state.wash, "#4fc3f7");
+    }
+
+    function drawWashBasin(x, y) {
+      ctx.save();
+      // 水槽底部的水反射
+      const basinGrad = ctx.createRadialGradient(x, y, 10, x, y, 160);
+      basinGrad.addColorStop(0, "rgba(129, 212, 250, 0.55)");
+      basinGrad.addColorStop(0.5, "rgba(129, 212, 250, 0.18)");
+      basinGrad.addColorStop(1, "rgba(129, 212, 250, 0)");
+      ctx.fillStyle = basinGrad;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 170, 36, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 水面波紋
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const phase = state.time * 1.4 + i * 1.1;
+        const ringR = 60 + i * 28 + Math.sin(phase) * 4;
+        ctx.globalAlpha = 0.35 - i * 0.08;
+        ctx.beginPath();
+        ctx.ellipse(x, y, ringR, ringR * 0.22, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawWaterStream(x1, y1, x2, y2) {
+      ctx.save();
+      // 主水柱：透明度疊合的水流帶
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, "rgba(179, 229, 252, 0.85)");
+      grad.addColorStop(0.5, "rgba(129, 212, 250, 0.55)");
+      grad.addColorStop(1, "rgba(129, 212, 250, 0.0)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 18;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      const sway = Math.sin(state.time * 6) * 3;
+      ctx.bezierCurveTo(x1 + sway, y1 + 40, x2 - sway, y2 - 40, x2, y2);
+      ctx.stroke();
+      // 內層白色高光
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(x1 + 1, y1);
+      ctx.bezierCurveTo(x1 + sway, y1 + 40, x2 - sway, y2 - 40, x2 - 1, y2);
+      ctx.stroke();
+      // 隨機水滴沿著水柱往下流
+      for (let i = 0; i < 5; i++) {
+        const t = ((state.time * 1.5 + i * 0.2) % 1);
+        const dx = x1 + (x2 - x1) * t + Math.sin(state.time * 8 + i) * 2;
+        const dy = y1 + (y2 - y1) * t;
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.beginPath();
+        ctx.ellipse(dx, dy, 2.5, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawWaterSplash(x, y) {
+      ctx.save();
+      // 水花閃光
+      ctx.fillStyle = "rgba(179, 229, 252, 0.55)";
+      ctx.beginPath();
+      ctx.arc(x, y, 14 + Math.sin(state.time * 18) * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // 噴濺水滴
+      const splatter = 6;
+      for (let i = 0; i < splatter; i++) {
+        const angle = (i / splatter) * Math.PI * 2 + state.time * 2;
+        const dist = 14 + Math.sin(state.time * 10 + i) * 4;
+        const px = x + Math.cos(angle) * dist;
+        const py = y + Math.sin(angle) * dist;
+        ctx.fillStyle = "rgba(129, 212, 250, 0.85)";
+        ctx.beginPath();
+        ctx.ellipse(px, py, 2, 3.5, angle, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawWetSheen(x, y, r, wash) {
+      if (wash <= 0.02) return;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      const alpha = Math.min(0.55, 0.18 + wash * 0.45);
+      // 主反光（左上）
+      const grad1 = ctx.createRadialGradient(x - r * 0.32, y - r * 0.38, r * 0.05, x - r * 0.32, y - r * 0.38, r * 0.6);
+      grad1.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+      grad1.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad1;
+      ctx.beginPath();
+      ctx.ellipse(x - r * 0.32, y - r * 0.38, r * 0.5, r * 0.32, -0.6, 0, Math.PI * 2);
+      ctx.fill();
+      // 副反光（右下）
+      const grad2 = ctx.createRadialGradient(x + r * 0.28, y + r * 0.32, r * 0.05, x + r * 0.28, y + r * 0.32, r * 0.5);
+      grad2.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.55})`);
+      grad2.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad2;
+      ctx.beginPath();
+      ctx.ellipse(x + r * 0.28, y + r * 0.32, r * 0.35, r * 0.22, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 水滴沿邊緣往下滴（洗到一半才出現）
+      if (wash > 0.35) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, (wash - 0.35) * 2);
+        for (let i = 0; i < 4; i++) {
+          const phase = (state.time * 0.8 + i * 0.32) % 1;
+          const angle = -Math.PI / 2 + (i - 1.5) * 0.4;
+          const dx = x + Math.cos(angle) * r * 0.9;
+          const dy = y + Math.sin(angle) * r * 0.9 + phase * (r * 0.95);
+          ctx.fillStyle = "rgba(179, 229, 252, 0.85)";
+          ctx.beginPath();
+          ctx.ellipse(dx, dy, 2.5, 5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.7)";
+          ctx.beginPath();
+          ctx.arc(dx - 0.5, dy - 1.5, 0.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawSoapBubbles(x, y, wash) {
+      // 越洗越多泡泡
+      const count = 4 + Math.floor(wash * 6);
+      ctx.save();
+      for (let i = 0; i < count; i++) {
+        const phase = state.time * 0.9 + i * 0.7;
+        const offsetX = Math.sin(phase + i) * 50;
+        const offsetY = -((phase * 18) % 130);
+        const bx = x + offsetX + (i - count / 2) * 9;
+        const by = y + 30 + offsetY;
+        const r = 6 + (i % 3) * 3 + Math.sin(phase * 2) * 1.2;
+        const alpha = Math.max(0, 0.5 - Math.abs(offsetY) / 180);
+
+        // 泡泡主體（半透明藍白漸層球）
+        ctx.globalAlpha = alpha;
+        const grad = ctx.createRadialGradient(bx - r * 0.3, by - r * 0.3, r * 0.1, bx, by, r);
+        grad.addColorStop(0, "rgba(255,255,255,0.95)");
+        grad.addColorStop(0.4, "rgba(179, 229, 252, 0.4)");
+        grad.addColorStop(1, "rgba(129, 212, 250, 0.12)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(bx, by, r, 0, Math.PI * 2);
+        ctx.fill();
+        // 泡泡邊
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.arc(bx, by, r, 0, Math.PI * 2);
+        ctx.stroke();
+        // 泡泡上的小亮點
+        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        ctx.beginPath();
+        ctx.arc(bx - r * 0.4, by - r * 0.45, r * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     function drawCut() {
@@ -796,12 +1115,64 @@
       drawSpeech(98, 138, 292, 92, state.fruit.prep.line1, state.fruit.prep.line2);
       drawCuttingBoard(326, 260, 260, 132);
       drawPrepStage(state.apple.x, state.apple.y, state.cuts);
+      // 切好的水果片下方加上柔和陰影，讓切片看起來有厚度
+      if (state.cuts >= 2.95) {
+        drawSliceShadowsRow(state.apple.x, state.apple.y);
+      }
       if (state.cuts < 2.95) {
         drawCutMarks();
         drawCutTrail();
+        // 沿著手指拖動軌跡灑出果汁
+        if (state.drag?.type === "prep" || state.drag?.type === "peel") {
+          drawJuiceTrailSparkle();
+        }
         drawMagicWand(state.apple.x + 88, state.apple.y - 88 + (state.cutFlash > 0 ? 28 : Math.sin(state.time * 5) * 5), state.cutFlash);
       }
       drawProgress(338, 438, 284, state.cuts / 3, state.fruit.accent);
+    }
+
+    function drawSliceShadowsRow(x, y) {
+      ctx.save();
+      ctx.fillStyle = "rgba(70, 45, 25, 0.22)";
+      ctx.beginPath();
+      ctx.ellipse(x, y + 56, 110, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawJuiceTrailSparkle() {
+      if (state.cutTrail.length < 2) return;
+      const tip = state.cutTrail[state.cutTrail.length - 1];
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      // 沿著刀痕點綴小亮光
+      for (let i = 0; i < 4; i++) {
+        const idx = Math.max(0, state.cutTrail.length - 1 - i * 2);
+        const p = state.cutTrail[idx];
+        if (!p) continue;
+        const r = 6 - i * 1.2 + Math.sin(state.time * 12 + i) * 1.5;
+        ctx.globalAlpha = 0.55 - i * 0.1;
+        ctx.fillStyle = state.fruit.accent;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      // 刀尖噴出的果汁滴
+      ctx.save();
+      for (let i = 0; i < 3; i++) {
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.4;
+        const dist = 6 + i * 4 + Math.sin(state.time * 14 + i) * 2;
+        const px = tip.x + Math.cos(angle) * dist;
+        const py = tip.y + Math.sin(angle) * dist - 2;
+        ctx.fillStyle = state.fruit.color;
+        ctx.globalAlpha = 0.85 - i * 0.2;
+        ctx.beginPath();
+        ctx.ellipse(px, py, 2.2, 3.4, angle, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     function drawCutMarks() {
@@ -810,19 +1181,47 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       state.cutMarks.forEach((mark, index) => {
-        ctx.strokeStyle = "rgba(93, 64, 55, 0.35)";
-        ctx.lineWidth = 14;
+        const isLatest = index === state.cutMarks.length - 1;
+        // 外層深色陰影（切口陰影）
+        ctx.strokeStyle = "rgba(63, 38, 22, 0.45)";
+        ctx.lineWidth = 16;
         ctx.beginPath();
         ctx.moveTo(mark.start.x, mark.start.y);
         ctx.lineTo(mark.end.x, mark.end.y);
         ctx.stroke();
 
-        ctx.strokeStyle = index === state.cutMarks.length - 1 ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.72)";
-        ctx.lineWidth = 7;
+        // 中層：果汁色（用切的水果的 accent 顏色）
+        ctx.strokeStyle = mark.color || state.fruit.accent;
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 10;
         ctx.beginPath();
         ctx.moveTo(mark.start.x, mark.start.y);
         ctx.lineTo(mark.end.x, mark.end.y);
         ctx.stroke();
+
+        // 內層：刀光白
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = isLatest ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.78)";
+        ctx.lineWidth = isLatest ? 5 : 4;
+        ctx.beginPath();
+        ctx.moveTo(mark.start.x, mark.start.y);
+        ctx.lineTo(mark.end.x, mark.end.y);
+        ctx.stroke();
+
+        // 最新刀痕加上閃光效果
+        if (isLatest) {
+          const flash = Math.max(0, state.cutFlash);
+          if (flash > 0) {
+            ctx.globalAlpha = flash * 5;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.lineWidth = 14;
+            ctx.beginPath();
+            ctx.moveTo(mark.start.x, mark.start.y);
+            ctx.lineTo(mark.end.x, mark.end.y);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+        }
       });
       ctx.restore();
     }
@@ -832,13 +1231,27 @@
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.86)";
+
+      // 外層淡光暈（讓刀光看起來有立體 glow）
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.lineWidth = 18;
+      ctx.beginPath();
+      ctx.moveTo(state.cutTrail[0].x, state.cutTrail[0].y);
+      for (const point of state.cutTrail.slice(1)) ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+
+      ctx.globalCompositeOperation = "source-over";
+
+      // 主刀光
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
       ctx.lineWidth = 9;
       ctx.beginPath();
       ctx.moveTo(state.cutTrail[0].x, state.cutTrail[0].y);
       for (const point of state.cutTrail.slice(1)) ctx.lineTo(point.x, point.y);
       ctx.stroke();
 
+      // 果汁色內芯
       ctx.strokeStyle = state.fruit.accent;
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -846,41 +1259,313 @@
       for (const point of state.cutTrail.slice(1)) ctx.lineTo(point.x, point.y);
       ctx.stroke();
 
+      // 刀尖球體 + 光暈
       const tip = state.cutTrail[state.cutTrail.length - 1];
+      const pulse = Math.sin(state.time * 16) * 2;
+      ctx.globalCompositeOperation = "lighter";
+      const tipGrad = ctx.createRadialGradient(tip.x, tip.y, 1, tip.x, tip.y, 18 + pulse);
+      tipGrad.addColorStop(0, "rgba(255,255,255,0.95)");
+      tipGrad.addColorStop(0.4, `${hexWithAlpha(state.fruit.accent, 0.6)}`);
+      tipGrad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = tipGrad;
+      ctx.beginPath();
+      ctx.arc(tip.x, tip.y, 18 + pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
       ctx.fillStyle = "#fffde7";
       ctx.beginPath();
-      ctx.arc(tip.x, tip.y, 8 + Math.sin(state.time * 16) * 2, 0, Math.PI * 2);
+      ctx.arc(tip.x, tip.y, 8 + pulse, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.restore();
+    }
+
+    // 將 hex 顏色加上 alpha，回傳 rgba(...) 字串
+    function hexWithAlpha(hex, alpha) {
+      const h = hex.replace("#", "");
+      const r = parseInt(h.substring(0, 2), 16);
+      const g = parseInt(h.substring(2, 4), 16);
+      const b = parseInt(h.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     function drawCook() {
       drawWorkScene();
-      drawSpeech(76, 138, 330, 92, "拖到鍋鍋", "輕輕放進去");
+      drawSpeech(76, 138, 330, 92, "一片一片", "放進鍋鍋");
+
+      // 砧板（左邊放著切好的水果片）
+      drawCuttingBoard(176, 350, 360, 96);
+
+      // 鍋子底下的暖光暈（火光透出來）
+      drawStoveGlow(state.pot.x + 115, state.pot.y + 140);
+
       drawPot(state.pot.x, state.pot.y, 1, state.fruit.soupColor);
-      drawFruit(state.fruit.id, state.apple.x, state.apple.y, 46, 0.96);
+
       const center = potCenter();
-      ctx.strokeStyle = "rgba(255, 213, 79, 0.82)";
-      ctx.lineWidth = 5;
-      ctx.setLineDash([14, 12]);
+      // 湯面上的咕嘟咕嘟泡泡
+      drawSoupBoilBubbles(center.x, center.y - 8, 1, state.fruit.soupColor);
+
+      // 蒸氣
+      drawRichSteam(center.x, center.y - 30, 1, 1);
+
+      // 進度提示：還剩幾片
+      const remaining = state.pieces.filter((p) => !p.inPot).length;
+      const total = state.pieces.length;
+      drawProgress(338, 458, 284, total === 0 ? 0 : (total - remaining) / total, state.fruit.accent);
+
+      // 鍋口的拖放提示圓圈（只有還有水果片在外面時才顯示）
+      if (remaining > 0) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255, 213, 79, 0.82)";
+        ctx.lineWidth = 5;
+        ctx.setLineDash([14, 12]);
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, 124 + Math.sin(state.time * 4) * 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+
+      // 先畫進鍋裡的水果片（在湯面內）
+      drawPiecesInPot();
+
+      // 再畫檯面上還沒進鍋的水果片
+      drawPiecesOnTray();
+
+      // 拖動中的水果靠近鍋口時，畫漣漪
+      const dragPiece = state.drag?.type === "piece" ? state.pieces[state.pieces.length - 1] : null;
+      if (dragPiece && !dragPiece.inPot) {
+        const d = dist(dragPiece, center);
+        if (d < 160) drawDropRipples(center.x, center.y - 6, 1 - d / 160);
+      }
+    }
+
+    // 畫檯面上還沒進鍋的水果片：每片有自己的浮動 + 陰影
+    function drawPiecesOnTray() {
+      const t = state.time;
+      for (const p of state.pieces) {
+        if (p.inPot) continue;
+        const bob = p.dragging ? 0 : Math.sin(t * 2.4 + p.id) * 2;
+        // 陰影
+        drawFloatShadow(p.x, p.y + 38, 32 * p.scale, 6 + (p.dragging ? 12 : bob), 0.28);
+        // 切片本體
+        drawFruitSlice(state.fruit.id, p.x, p.y + bob, p.scale, p.rotation);
+      }
+    }
+
+    // 畫已進鍋的水果片：浸在湯面內，會輕微擺動
+    function drawPiecesInPot() {
+      const center = potCenter();
+      const t = state.time;
+      // 收集進鍋的片，依 y 排序讓後面的在後面
+      const inPot = state.pieces.filter((p) => p.inPot);
+      // clip 在鍋的湯面範圍內，避免畫出鍋邊
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(center.x, center.y, 136 + Math.sin(state.time * 4) * 5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.ellipse(center.x, center.y - 6, 92, 28, 0, 0, Math.PI * 2);
+      ctx.clip();
+      for (const p of inPot) {
+        const drift = Math.sin(t * 1.8 + p.id) * 4;
+        const sway = Math.cos(t * 1.4 + p.id * 0.7) * 2;
+        const px = center.x + p.potOffsetX + drift;
+        const py = center.y + p.potOffsetY + sway;
+        // 落入時的小波紋（dropAnim 計時）
+        const scale = 0.55 + (p.dropAnim > 0 ? 0.05 * Math.sin(p.dropAnim * 8) : 0);
+        ctx.save();
+        ctx.globalAlpha = 0.92;
+        drawFruitSlice(state.fruit.id, px, py, scale, p.potRotation + sway * 0.1);
+        ctx.restore();
+        // 湯水蓋過切片的薄霧
+        ctx.fillStyle = `${hexWithAlpha(state.fruit.soupColor, 0.3)}`;
+        ctx.beginPath();
+        ctx.ellipse(px, py - 2, 32 * scale, 8 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
     }
 
     function drawStir() {
       drawWorkScene();
       drawSpeech(70, 138, 336, 92, "繞圈圈", "攪一攪");
+
+      drawStoveGlow(state.pot.x + 115, state.pot.y + 140, 1.1);
       drawPot(state.pot.x, state.pot.y, 1.08, state.fruit.soupColor);
+
       const center = potCenter();
+      // 湯面漩渦
+      drawSoupVortex(center.x, center.y - 10, state.fruit.soupColor);
+
+      // 把所有水果片畫在湯面內、隨漩渦旋轉
+      drawPiecesStirring(center.x, center.y - 6);
+
+      // 攪拌弧線提示
+      ctx.save();
       ctx.strokeStyle = "#fff59d";
       ctx.lineWidth = 10;
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.arc(center.x, center.y - 10, 58, state.time * 2, state.time * 2 + Math.PI * 1.35);
       ctx.stroke();
-      drawProgress(338, 438, 284, Math.min(1, state.stir.travel / (Math.PI * 4.2)), "#fff176");
+      ctx.restore();
+
+      drawSoupBoilBubbles(center.x, center.y - 8, 1.2, state.fruit.soupColor);
+      drawRichSteam(center.x, center.y - 30, 1.15, 1.3);
+
+      drawProgress(338, 458, 284, Math.min(1, state.stir.travel / (Math.PI * 4.2)), "#fff176");
+    }
+
+    // 水果片在湯裡跟著漩渦轉
+    function drawPiecesStirring(cx, cy) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 92, 28, 0, 0, Math.PI * 2);
+      ctx.clip();
+      const pieces = state.pieces.length > 0 ? state.pieces : [
+        // 沒有 piece 資料時（直接進入 stir 模式測試）退而求其次
+        { id: 0, potRotation: 0 }, { id: 1, potRotation: 0.3 },
+        { id: 2, potRotation: -0.2 }, { id: 3, potRotation: 0.5 }
+      ];
+      const spin = state.time * 1.6;
+      pieces.forEach((p, i) => {
+        const angle = spin + (i / pieces.length) * Math.PI * 2;
+        const r = 40 + (i % 2) * 14;
+        const px = cx + Math.cos(angle) * r;
+        const py = cy + Math.sin(angle) * r * 0.32;
+        ctx.save();
+        ctx.globalAlpha = 0.92;
+        drawFruitSlice(state.fruit.id, px, py, 0.5, angle + (p.potRotation || 0));
+        ctx.restore();
+        // 湯薄霧蓋過切片
+        ctx.fillStyle = hexWithAlpha(state.fruit.soupColor, 0.32);
+        ctx.beginPath();
+        ctx.ellipse(px, py - 1, 18, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
+    function drawStoveGlow(x, y, scale = 1) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      const pulse = 0.8 + Math.sin(state.time * 3.5) * 0.2;
+      const grad = ctx.createRadialGradient(x, y, 8, x, y, 130 * scale);
+      grad.addColorStop(0, `rgba(255, 167, 38, ${0.55 * pulse})`);
+      grad.addColorStop(0.45, `rgba(239, 108, 0, ${0.22 * pulse})`);
+      grad.addColorStop(1, "rgba(239, 108, 0, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 130 * scale, 36 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawSoupBoilBubbles(x, y, scale = 1, soupColor = "#ffcc80") {
+      ctx.save();
+      const surfaceW = 70 * scale;
+      const surfaceH = 14 * scale;
+      const bubbleCount = 8;
+      for (let i = 0; i < bubbleCount; i++) {
+        // 每顆泡泡以不同節奏出現
+        const phase = (state.time * 1.6 + i * 0.83) % 1.6;
+        const t = phase / 1.6;
+        if (t < 0.05 || t > 0.95) continue;
+        const offsetAngle = i * 1.7 + state.time * 0.3;
+        const px = x + Math.cos(offsetAngle) * surfaceW * 0.7;
+        const py = y - surfaceH * 0.2 + Math.sin(offsetAngle) * surfaceH * 0.4;
+        const r = (2 + i % 3) * scale * (0.4 + t);
+        const alpha = Math.sin(t * Math.PI) * 0.85;
+        // 泡泡：半透明球
+        ctx.globalAlpha = alpha;
+        const grad = ctx.createRadialGradient(px - r * 0.3, py - r * 0.3, r * 0.1, px, py, r);
+        grad.addColorStop(0, "rgba(255,255,255,0.95)");
+        grad.addColorStop(0.5, hexWithAlpha(soupColor, 0.6));
+        grad.addColorStop(1, hexWithAlpha(soupColor, 0.0));
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.7)";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawRichSteam(x, y, scale = 1, drift = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.globalCompositeOperation = "lighter";
+      // 多層次雲團狀蒸氣
+      for (let layer = 0; layer < 4; layer++) {
+        const phase = state.time * (1.2 + layer * 0.18) + drift + layer * 0.9;
+        const sx = (layer - 1.5) * 18 + Math.sin(phase) * 8;
+        const lift = -Math.abs(((phase * 16) % 90));
+        const sy = lift - 6;
+        const r = 22 - layer * 2 + Math.sin(phase) * 3;
+        const alpha = Math.max(0, 0.32 + lift / 240);
+        ctx.globalAlpha = alpha;
+        const grad = ctx.createRadialGradient(sx, sy, r * 0.1, sx, sy, r);
+        grad.addColorStop(0, "rgba(255,255,255,0.85)");
+        grad.addColorStop(0.55, "rgba(255,255,255,0.32)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawDropRipples(x, y, strength) {
+      ctx.save();
+      ctx.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        const phase = (state.time * 1.8 + i * 0.33) % 1;
+        const r = 20 + phase * 70;
+        ctx.globalAlpha = (1 - phase) * 0.6 * strength;
+        ctx.strokeStyle = "rgba(255, 245, 157, 0.85)";
+        ctx.lineWidth = 3 - phase * 2;
+        ctx.beginPath();
+        ctx.ellipse(x, y, r, r * 0.22, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawSoupVortex(x, y, soupColor = "#ffcc80") {
+      ctx.save();
+      ctx.translate(x, y);
+      // 漩渦本體：旋轉的色彩環
+      ctx.rotate(state.time * 1.4);
+      for (let i = 0; i < 4; i++) {
+        const a0 = (i / 4) * Math.PI * 2;
+        const a1 = a0 + Math.PI * 0.4;
+        const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, 70);
+        grad.addColorStop(0, hexWithAlpha(soupColor, 0.7));
+        grad.addColorStop(1, hexWithAlpha(soupColor, 0));
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, 64, a0, a1);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // 中心高光
+      ctx.rotate(-state.time * 1.4);
+      const cgrad = ctx.createRadialGradient(0, 0, 2, 0, 0, 30);
+      cgrad.addColorStop(0, "rgba(255,255,255,0.65)");
+      cgrad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = cgrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, 30, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
     function drawReward() {
@@ -1172,6 +1857,81 @@
       if (kind === "orange") return drawOrange(x, y, r, scale);
       if (kind === "carrot") return drawCarrot(x, y, r, scale);
       return drawApple(x, y, r, scale);
+    }
+
+    // --- 3D 浮動效果輔助 ---
+    // 在水果下方畫一顆柔和的橢圓陰影，營造水果懸浮的錯覺。
+    function drawFloatShadow(x, y, r, lift = 0, intensity = 0.32) {
+      const dropRatio = Math.max(0.35, 1 - lift / Math.max(20, r * 0.9));
+      const shadowR = r * 0.92;
+      const shadowH = r * 0.22 * dropRatio;
+      ctx.save();
+      const grad = ctx.createRadialGradient(x, y + r * 0.96, shadowH * 0.2, x, y + r * 0.96, shadowR);
+      grad.addColorStop(0, `rgba(67, 38, 22, ${intensity * dropRatio})`);
+      grad.addColorStop(0.55, `rgba(67, 38, 22, ${intensity * 0.4 * dropRatio})`);
+      grad.addColorStop(1, "rgba(67, 38, 22, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(x, y + r * 0.96, shadowR, shadowH, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 在水果上覆蓋淡淡的弧形高光，讓 PNG 看起來更有 3D 立體感。
+    function drawFruitGloss(x, y, r, options = {}) {
+      const cx = x - r * 0.34;
+      const cy = y - r * 0.36;
+      const rx = r * 0.55;
+      const ry = r * 0.32;
+      ctx.save();
+      ctx.globalCompositeOperation = options.composite || "lighter";
+      const grad = ctx.createRadialGradient(cx, cy, rx * 0.1, cx, cy, rx);
+      grad.addColorStop(0, `rgba(255,255,255,${options.alpha ?? 0.38})`);
+      grad.addColorStop(0.55, "rgba(255,255,255,0.10)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, -0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 在水果邊緣加入一圈淡淡的暖色輪光，強化立體感。
+    function drawFruitRimLight(x, y, r, color = "#fff3c4") {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.18;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, r * 0.07);
+      ctx.beginPath();
+      ctx.arc(x + r * 0.05, y + r * 0.08, r * 0.95, Math.PI * 0.15, Math.PI * 0.75);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 將水果以「浮動 + 陰影 + 高光」的方式繪製，模擬輕微的 3D 浮起。
+    // bobSeed 可指定不同水果的擺動相位，避免一起上下動。
+    // amplitude 控制浮動幅度（像素），可在小卡片上調小、在主場景調大。
+    function drawFloatingFruit(kind, x, y, r, scale = 1, options = {}) {
+      const amplitude = options.amplitude ?? 4;
+      const speed = options.speed ?? 1.8;
+      const bobSeed = options.bobSeed ?? 0;
+      const phase = state.time * speed + bobSeed;
+      const lift = Math.sin(phase) * amplitude;
+      const tilt = Math.sin(phase * 0.7 + 0.4) * (options.tilt ?? 0.05);
+
+      const shadowR = r * scale;
+      drawFloatShadow(x, y + amplitude + r * 0.04, shadowR, lift + amplitude, options.shadowIntensity ?? 0.28);
+
+      ctx.save();
+      ctx.translate(x, y + lift);
+      ctx.rotate(tilt);
+      drawFruit(kind, 0, 0, r, scale, options);
+      if (options.gloss !== false) drawFruitGloss(0, 0, r * scale, { alpha: options.glossAlpha ?? 0.32 });
+      if (options.rim !== false) drawFruitRimLight(0, 0, r * scale, options.rimColor);
+      ctx.restore();
+
+      return { lift, tilt };
     }
 
     function drawApple(x, y, r, scale = 1) {
@@ -1638,23 +2398,72 @@
       ctx.translate(x, y);
       ctx.rotate(rotate);
       ctx.scale(scale, scale);
-      ctx.fillStyle = "#d32f2f";
+
+      // Wedge silhouette (D-shape — flat-ish bottom, curved top is red skin)
+      // 整體大小約 80x70
+      // Skin band (curved outer)
+      const skinGrad = ctx.createLinearGradient(0, -38, 0, 30);
+      skinGrad.addColorStop(0, "#ff7558");
+      skinGrad.addColorStop(0.5, "#e0392c");
+      skinGrad.addColorStop(1, "#8d1a14");
+      ctx.fillStyle = skinGrad;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 34, 58, 0, 0, Math.PI * 2);
+      ctx.moveTo(-38, 22);
+      ctx.bezierCurveTo(-46, -8, -28, -42, 0, -42);
+      ctx.bezierCurveTo(28, -42, 46, -8, 38, 22);
+      ctx.bezierCurveTo(30, 30, -30, 30, -38, 22);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#fff3c4";
+
+      // Flesh
+      const fleshGrad = ctx.createRadialGradient(-8, -10, 4, 0, 0, 42);
+      fleshGrad.addColorStop(0, "#fffce8");
+      fleshGrad.addColorStop(0.55, "#fff0c2");
+      fleshGrad.addColorStop(1, "#e6c989");
+      ctx.fillStyle = fleshGrad;
       ctx.beginPath();
-      ctx.ellipse(3, 0, 25, 48, 0, 0, Math.PI * 2);
+      ctx.moveTo(-30, 18);
+      ctx.bezierCurveTo(-38, -6, -22, -34, 0, -34);
+      ctx.bezierCurveTo(22, -34, 38, -6, 30, 18);
+      ctx.bezierCurveTo(22, 24, -22, 24, -30, 18);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#ffcc80";
+
+      // Subtle core stripe (darker tan)
+      ctx.fillStyle = "rgba(210, 160, 90, 0.45)";
       ctx.beginPath();
-      ctx.ellipse(8, 0, 12, 28, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 8, 14, 5, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#6d4c41";
+
+      // Seeds (2 dark teardrops)
+      ctx.fillStyle = "#3e2a18";
       ctx.beginPath();
-      ctx.ellipse(4, -10, 3, 6, -0.2, 0, Math.PI * 2);
-      ctx.ellipse(8, 12, 3, 6, 0.2, 0, Math.PI * 2);
+      ctx.ellipse(-5, 6, 2.2, 4, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(5, 8, 2.2, 4, 0.35, 0, Math.PI * 2);
       ctx.fill();
+      // Seed highlights
+      ctx.fillStyle = "rgba(255,230,200,0.55)";
+      ctx.beginPath();
+      ctx.ellipse(-5.5, 5, 0.8, 1.4, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(4.5, 7, 0.8, 1.4, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Top glossy highlight
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.beginPath();
+      ctx.ellipse(-12, -22, 10, 14, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+
+      // Skin shine on red rim
+      ctx.strokeStyle = "rgba(255, 220, 190, 0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-30, -22);
+      ctx.bezierCurveTo(-10, -38, 14, -38, 28, -24);
+      ctx.stroke();
+
       ctx.restore();
     }
 
@@ -1700,102 +2509,231 @@
     }
 
     function drawBananaSlice(x, y, scale = 1, rotate = 0) {
+      // 香蕉片：圓盤狀（橫切），中心三點黑芯
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(rotate);
       ctx.scale(scale, scale);
-      ctx.fillStyle = "#f9a825";
+
+      // 外圈：香蕉皮（深黃）
+      const ringGrad = ctx.createRadialGradient(-6, -8, 4, 0, 0, 36);
+      ringGrad.addColorStop(0, "#ffe35a");
+      ringGrad.addColorStop(0.7, "#f7c01a");
+      ringGrad.addColorStop(1, "#a07000");
+      ctx.fillStyle = ringGrad;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 34, 50, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 34, 32, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#fff6b5";
+
+      // 內肉：奶白
+      const fleshGrad = ctx.createRadialGradient(-4, -6, 3, 0, 0, 28);
+      fleshGrad.addColorStop(0, "#fffce6");
+      fleshGrad.addColorStop(0.65, "#fff3b8");
+      fleshGrad.addColorStop(1, "#e6c882");
+      ctx.fillStyle = fleshGrad;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 26, 40, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 27, 25, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#d6a523";
+
+      // 中心三點種子（小黑點構成三角）
+      ctx.fillStyle = "#3e2a18";
+      [[0, -3.5], [-3, 2], [3, 2]].forEach(([sx, sy]) => {
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, 1.2, 1.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 高光
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
       ctx.beginPath();
-      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.ellipse(-10, -10, 10, 7, -0.4, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+
       ctx.restore();
     }
 
     function drawStrawberrySlice(x, y, scale = 1, rotate = 0) {
+      // 草莓縱切片：心型外輪廓，內部有放射狀白色纖維
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(rotate);
       ctx.scale(scale, scale);
-      ctx.fillStyle = "#c91d44";
+
+      // 外輪廓
+      const skinGrad = ctx.createLinearGradient(0, -42, 0, 50);
+      skinGrad.addColorStop(0, "#ff7a8a");
+      skinGrad.addColorStop(0.5, "#ef3f5a");
+      skinGrad.addColorStop(1, "#a01030");
+      ctx.fillStyle = skinGrad;
       ctx.beginPath();
-      ctx.moveTo(0, 54);
-      ctx.bezierCurveTo(-38, 8, -30, -42, 0, -48);
-      ctx.bezierCurveTo(30, -42, 38, 8, 0, 54);
+      ctx.moveTo(0, 50);
+      ctx.bezierCurveTo(-38, 8, -30, -38, 0, -42);
+      ctx.bezierCurveTo(30, -38, 38, 8, 0, 50);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#fff3f0";
+
+      // 內部肉（粉白）
+      const fleshGrad = ctx.createRadialGradient(-4, -8, 4, 0, 0, 36);
+      fleshGrad.addColorStop(0, "#fffafa");
+      fleshGrad.addColorStop(0.5, "#fde0e4");
+      fleshGrad.addColorStop(1, "#f0a8b8");
+      ctx.fillStyle = fleshGrad;
       ctx.beginPath();
-      ctx.moveTo(0, 40);
-      ctx.bezierCurveTo(-24, 8, -20, -28, 0, -34);
-      ctx.bezierCurveTo(20, -28, 24, 8, 0, 40);
+      ctx.moveTo(0, 38);
+      ctx.bezierCurveTo(-28, 6, -22, -28, 0, -32);
+      ctx.bezierCurveTo(22, -28, 28, 6, 0, 38);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#ffe082";
-      for (let i = -1; i <= 1; i++) {
+
+      // 放射狀纖維線（從中心發散）
+      ctx.strokeStyle = "rgba(255, 220, 220, 0.7)";
+      ctx.lineWidth = 0.8;
+      for (let i = 0; i < 8; i++) {
+        const angle = -Math.PI / 2 + i * (Math.PI * 2 / 10);
         ctx.beginPath();
-        ctx.ellipse(i * 8, 0 + Math.abs(i) * 8, 3, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(0, -2);
+        ctx.lineTo(Math.cos(angle) * 22, Math.sin(angle) * 28);
+        ctx.stroke();
       }
+
+      // 黃色種子（小橢圓散布）
+      ctx.fillStyle = "#ffe082";
+      const seeds = [[-12, -20], [10, -22], [-16, -2], [14, 0], [-10, 18], [12, 20], [0, -28], [0, 28]];
+      seeds.forEach(([sx, sy]) => {
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, 1.8, 2.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 高光
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.beginPath();
+      ctx.ellipse(-12, -18, 8, 16, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+
       ctx.restore();
     }
 
     function drawOrangeSlice(x, y, scale = 1, rotate = 0) {
+      // 橘子瓣：半月形（彎月狀），外圈橘皮+內部果肉果粒
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(rotate);
       ctx.scale(scale, scale);
-      ctx.fillStyle = "#ef6c00";
+
+      // 月牙外輪廓
+      const peelGrad = ctx.createLinearGradient(-30, 0, 30, 0);
+      peelGrad.addColorStop(0, "#ffa726");
+      peelGrad.addColorStop(0.5, "#f57c00");
+      peelGrad.addColorStop(1, "#a04500");
+      ctx.fillStyle = peelGrad;
       ctx.beginPath();
-      ctx.moveTo(0, -50);
-      ctx.arc(0, 0, 50, -Math.PI / 2, Math.PI / 2);
+      ctx.moveTo(-44, -36);
+      ctx.bezierCurveTo(20, -50, 50, -22, 50, 0);
+      ctx.bezierCurveTo(50, 22, 20, 50, -44, 36);
+      ctx.bezierCurveTo(-26, 18, -26, -18, -44, -36);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#ffcc80";
+
+      // 內部果肉
+      const pulpGrad = ctx.createRadialGradient(-8, -6, 6, 0, 0, 36);
+      pulpGrad.addColorStop(0, "#ffe5a8");
+      pulpGrad.addColorStop(0.55, "#ffcc66");
+      pulpGrad.addColorStop(1, "#d88a1a");
+      ctx.fillStyle = pulpGrad;
       ctx.beginPath();
-      ctx.moveTo(0, -38);
-      ctx.arc(0, 0, 38, -Math.PI / 2, Math.PI / 2);
+      ctx.moveTo(-32, -28);
+      ctx.bezierCurveTo(14, -38, 38, -16, 38, 0);
+      ctx.bezierCurveTo(38, 16, 14, 38, -32, 28);
+      ctx.bezierCurveTo(-18, 12, -18, -12, -32, -28);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = "#fff3e0";
-      ctx.lineWidth = 4;
+
+      // 果粒紋理（小顆白色斑點代表 juice sacs）
+      ctx.fillStyle = "rgba(255, 245, 200, 0.65)";
+      for (let i = 0; i < 14; i++) {
+        const angle = (i / 14) * Math.PI * 2;
+        const r = 8 + (i % 3) * 6;
+        ctx.beginPath();
+        ctx.ellipse(Math.cos(angle) * r * 0.6 - 4, Math.sin(angle) * r * 0.5, 1.5, 2.2, angle, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 中央白色心
+      ctx.fillStyle = "rgba(255,240,210,0.85)";
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(34, -18);
-      ctx.moveTo(0, 0);
-      ctx.lineTo(34, 18);
-      ctx.stroke();
+      ctx.ellipse(-12, 0, 4, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 高光
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.beginPath();
+      ctx.ellipse(-10, -18, 12, 8, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+
       ctx.restore();
     }
 
     function drawCarrotSlice(x, y, scale = 1, rotate = 0) {
+      // 紅蘿蔔切片：圓盤狀，有外圈深橘 + 內芯亮黃 + 中央深色點
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(rotate);
       ctx.scale(scale, scale);
 
-      ctx.fillStyle = "#e65100";
+      // 外圈（深橘色皮層）
+      const ringGrad = ctx.createRadialGradient(-6, -8, 4, 0, 0, 34);
+      ringGrad.addColorStop(0, "#ffb74d");
+      ringGrad.addColorStop(0.65, "#ef6c00");
+      ringGrad.addColorStop(1, "#8b3a00");
+      ctx.fillStyle = ringGrad;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 34, 28, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 32, 28, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#ffb74d";
+
+      // 中層（亮橘色肉質）
+      const fleshGrad = ctx.createRadialGradient(-4, -6, 3, 0, 0, 26);
+      fleshGrad.addColorStop(0, "#ffe0a8");
+      fleshGrad.addColorStop(0.6, "#ffb74d");
+      fleshGrad.addColorStop(1, "#e6822a");
+      ctx.fillStyle = fleshGrad;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 27, 21, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 25, 21, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "rgba(255, 245, 157, 0.7)";
-      ctx.lineWidth = 4;
+
+      // 內芯（淺黃色，紅蘿蔔的木質部）
+      const coreGrad = ctx.createRadialGradient(-2, -3, 1, 0, 0, 12);
+      coreGrad.addColorStop(0, "#fff5b0");
+      coreGrad.addColorStop(1, "#e0a040");
+      ctx.fillStyle = coreGrad;
       ctx.beginPath();
-      ctx.arc(0, 0, 12, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#66bb6a";
-      ctx.beginPath();
-      ctx.ellipse(18, -18, 8, 14, 0.7, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 11, 9, 0, 0, Math.PI * 2);
       ctx.fill();
+
+      // 環狀放射紋
+      ctx.strokeStyle = "rgba(180, 80, 0, 0.35)";
+      ctx.lineWidth = 0.8;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * 11, Math.sin(a) * 9);
+        ctx.lineTo(Math.cos(a) * 22, Math.sin(a) * 18);
+        ctx.stroke();
+      }
+
+      // 高光
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
+      ctx.beginPath();
+      ctx.ellipse(-10, -10, 10, 6, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
 
       ctx.restore();
     }
@@ -1894,8 +2832,8 @@
         ctx.ellipse(0, -2, 72, 22, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
-        drawFruitSlice(state.fruit.id, -26, -4, 0.34, -0.35);
-        drawFruitSlice(state.fruit.id, 30, -2, 0.3, 0.28);
+        // 把所有的水果片都漂在湯面上
+        drawBowlPieces();
         ctx.restore();
         drawSteamDrift(x, y - 38 * scale, scale * 0.74, 1.1);
         return;
@@ -1912,8 +2850,7 @@
       ctx.beginPath();
       ctx.ellipse(0, -4, 72, 24, 0, 0, Math.PI * 2);
       ctx.fill();
-      drawFruitSlice(state.fruit.id, -26, -4, 0.34, -0.35);
-      drawFruitSlice(state.fruit.id, 30, -2, 0.3, 0.28);
+      drawBowlPieces();
       ctx.fillStyle = "#42a5f5";
       ctx.beginPath();
       ctx.moveTo(-82, 8);
@@ -1932,6 +2869,26 @@
       }
       ctx.restore();
       drawSteamDrift(x, y - 38 * scale, scale * 0.74, 1.1);
+    }
+
+    // 把所有水果切片漂浮在湯碗湯面上（畫在已 translate/scale 的 ctx 中）
+    function drawBowlPieces() {
+      const layout = [
+        { x: -34, y: -6, scale: 0.42, rot: -0.4 },
+        { x: 8,   y: -2, scale: 0.45, rot: 0.15 },
+        { x: 38,  y: -8, scale: 0.40, rot: -0.2 },
+        { x: -10, y: 6,  scale: 0.38, rot: 0.5 }
+      ];
+      const bob = state.time * 1.6;
+      layout.forEach((s, i) => {
+        const dy = Math.sin(bob + i * 0.9) * 1.5;
+        // 切片下半部被湯水蓋住的薄霧（在切片之前先畫，模擬部分沉入湯中）
+        drawFruitSlice(state.fruit.id, s.x, s.y + dy, s.scale, s.rot + Math.sin(bob * 0.5 + i) * 0.06);
+        ctx.fillStyle = hexWithAlpha(state.fruit.soupColor, 0.32);
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y + dy + 4 * s.scale, 28 * s.scale, 6 * s.scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
     }
 
     function drawSticker(x, y) {

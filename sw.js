@@ -1,4 +1,4 @@
-const CACHE_NAME = "kingdom-kitchen-pwa-v2-20260517";
+const CACHE_NAME = "kingdom-kitchen-pwa-v1-20260516";
 
 const PRECACHE_URLS = [
   "./",
