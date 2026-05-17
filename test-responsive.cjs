@@ -51,13 +51,42 @@ async function main() {
     if (state.mode !== "menu") {
       throw new Error(`${device.name} expected menu mode, got ${state.mode}`);
     }
+    if (device.viewport.height > device.viewport.width && box.height < device.viewport.height * 0.72) {
+      throw new Error(`${device.name} portrait canvas is too small: ${JSON.stringify({ box, viewport: device.viewport })}`);
+    }
 
     await page.screenshot({ path: path.join(outDir, `${device.name}.png`), fullPage: true });
+    await clickCanvasPoint(page, box, device.viewport, state.interactiveTargets.fruitButtons[0]);
+    await page.waitForTimeout(250);
+    const clickedState = JSON.parse(await page.evaluate(() => window.render_game_to_text()));
+    if (clickedState.mode !== "order") {
+      throw new Error(`${device.name} click mapping failed, expected order mode: ${JSON.stringify(clickedState)}`);
+    }
     console.log(`${device.name}: canvas ${Math.round(box.width)}x${Math.round(box.height)} at ${Math.round(box.x)},${Math.round(box.y)}`);
     await context.close();
   }
 
   await browser.close();
+}
+
+async function clickCanvasPoint(page, box, viewport, rect) {
+  const point = {
+    x: rect.x + rect.w / 2,
+    y: rect.y + rect.h / 2
+  };
+
+  if (viewport.height > viewport.width) {
+    await page.mouse.click(
+      box.x + box.width - (point.y / 540) * box.width,
+      box.y + (point.x / 960) * box.height
+    );
+    return;
+  }
+
+  await page.mouse.click(
+    box.x + (point.x / 960) * box.width,
+    box.y + (point.y / 540) * box.height
+  );
 }
 
 main().catch((error) => {
