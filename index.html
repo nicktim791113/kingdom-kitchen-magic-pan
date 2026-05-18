@@ -315,15 +315,52 @@
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     }
 
+    let preferredVoice = null;
+    function pickVoice() {
+      if (!("speechSynthesis" in window)) return null;
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices.length) return null;
+      const isTW = (v) => /zh[-_]TW/i.test(v.lang);
+      const isHK = (v) => /zh[-_]HK/i.test(v.lang);
+      const isZh = (v) => /^zh(?:[-_]|$)/i.test(v.lang);
+      const tiers = [
+        (v) => isTW(v) && /premium/i.test(v.name),
+        (v) => isTW(v) && /enhanced/i.test(v.name),
+        (v) => isTW(v) && /mei[-\s]?jia|美佳|台灣|臺灣/i.test(v.name),
+        (v) => isTW(v) && /google/i.test(v.name),
+        (v) => isTW(v),
+        (v) => isHK(v) && /premium|enhanced/i.test(v.name),
+        (v) => isHK(v),
+        (v) => isZh(v),
+      ];
+      for (const test of tiers) {
+        const match = voices.find(test);
+        if (match) return match;
+      }
+      return null;
+    }
+    function initVoice() {
+      if (!("speechSynthesis" in window)) return;
+      preferredVoice = pickVoice();
+      if (typeof window.speechSynthesis.addEventListener === "function") {
+        window.speechSynthesis.addEventListener("voiceschanged", () => {
+          preferredVoice = pickVoice() || preferredVoice;
+        });
+      }
+    }
+
     function speak(text) {
       if (state.mute || state.spoken === text || !("speechSynthesis" in window)) return;
       state.spoken = text;
       try {
         window.speechSynthesis.cancel();
+        if (!preferredVoice) preferredVoice = pickVoice();
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "zh-TW";
-        utterance.rate = 0.86;
-        utterance.pitch = 1.25;
+        if (preferredVoice) utterance.voice = preferredVoice;
+        utterance.lang = preferredVoice?.lang || "zh-TW";
+        utterance.rate = 0.95;
+        utterance.pitch = 1.1;
+        utterance.volume = 1;
         window.speechSynthesis.speak(utterance);
       } catch (error) {
         state.mute = true;
@@ -3111,6 +3148,7 @@
     }
 
     resize();
+    initVoice();
     requestAnimationFrame(loop);
   </script>
 </body>
