@@ -174,6 +174,25 @@
       }
     }
 
+    function loadAudioPrefs() {
+      try {
+        const raw = JSON.parse(localStorage.getItem("kingdomKitchenAudio") || "{}");
+        return { mute: !!raw.mute, bgmMute: !!raw.bgmMute };
+      } catch (error) {
+        return { mute: false, bgmMute: false };
+      }
+    }
+
+    function saveAudioPrefs() {
+      try {
+        localStorage.setItem("kingdomKitchenAudio", JSON.stringify({ mute: state.mute, bgmMute: state.bgmMute }));
+      } catch (error) {
+        // ignore quota / private mode failures
+      }
+    }
+
+    const AUDIO_PREFS = loadAudioPrefs();
+
     function stickerCount(fruitId) {
       return Math.max(0, state.collection[fruitId]?.count || 0);
     }
@@ -263,7 +282,8 @@
       // 煮的階段：把切好的水果切成多個小片，一片一片拖進鍋裡
       pieces: [],
       cookAdvancing: false,
-      mute: false,
+      mute: AUDIO_PREFS.mute,
+      bgmMute: AUDIO_PREFS.bgmMute,
       pendingNext: false,
       rewardTime: 0,
       lastRewardCount: 0,
@@ -284,27 +304,107 @@
       again: { x: 350, y: 392, w: 260, h: 72 },
       book: { x: 674, y: 394, w: 214, h: 96 },
       back: { x: 34, y: 34, w: 152, h: 58 },
-      mute: { x: 848, y: 24, w: 74, h: 48 }
+      mute: { x: 848, y: 24, w: 74, h: 48 },
+      bgm:  { x: 766, y: 24, w: 74, h: 48 }
     };
 
     const audio = {
       ctx: null,
+      bgmBuffer: null,
+      bgmSource: null,
+      bgmGain: null,
+      bgmLoading: null,
+      bgmVolume: 0.35,
+      ensureCtx() {
+        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        return this.ctx;
+      },
       beep(freq = 540, duration = 0.08, type = "sine") {
         if (state.mute) return;
         try {
-          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
+          const ctx = this.ensureCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
           osc.type = type;
           osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0.001, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.12, this.ctx.currentTime + 0.01);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
-          osc.connect(gain).connect(this.ctx.destination);
+          gain.gain.setValueAtTime(0.001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+          osc.connect(gain).connect(ctx.destination);
           osc.start();
-          osc.stop(this.ctx.currentTime + duration + 0.02);
+          osc.stop(ctx.currentTime + duration + 0.02);
         } catch (error) {
           state.mute = true;
+        }
+      },
+      async loadBgm() {
+        if (this.bgmBuffer) return this.bgmBuffer;
+        if (this.bgmLoading) return this.bgmLoading;
+        this.bgmLoading = (async () => {
+          try {
+            const ctx = this.ensureCtx();
+            const response = await fetch("./assets/sounds/sunny_kitchen_prep.mp3");
+            if (!response.ok) throw new Error("bgm fetch failed " + response.status);
+            const arrayBuffer = await response.arrayBuffer();
+            this.bgmBuffer = await ctx.decodeAudioData(arrayBuffer);
+            return this.bgmBuffer;
+          } catch (error) {
+            this.bgmBuffer = null;
+            return null;
+          } finally {
+            this.bgmLoading = null;
+          }
+        })();
+        return this.bgmLoading;
+      },
+      async startBgm() {
+        if (state.bgmMute) return;
+        if (this.bgmSource) return;
+        try {
+          const ctx = this.ensureCtx();
+          if (ctx.state === "suspended") await ctx.resume();
+          const buffer = await this.loadBgm();
+          if (!buffer || state.bgmMute || this.bgmSource) return;
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.loop = true;
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(0, ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(this.bgmVolume, ctx.currentTime + 0.8);
+          source.connect(gain).connect(ctx.destination);
+          source.start(0);
+          this.bgmSource = source;
+          this.bgmGain = gain;
+        } catch (error) {
+          // ignore — autoplay policy or decode failure; user can retry via button
+        }
+      },
+      stopBgm() {
+        if (this.bgmSource) {
+          try { this.bgmSource.stop(0); } catch (e) {}
+          try { this.bgmSource.disconnect(); } catch (e) {}
+          this.bgmSource = null;
+        }
+        if (this.bgmGain) {
+          try { this.bgmGain.disconnect(); } catch (e) {}
+          this.bgmGain = null;
+        }
+      },
+      fadeBgm(targetVolume) {
+        if (!this.bgmGain || !this.ctx) return;
+        const t = this.ctx.currentTime;
+        this.bgmGain.gain.cancelScheduledValues(t);
+        this.bgmGain.gain.linearRampToValueAtTime(targetVolume, t + 0.25);
+      },
+      async toggleBgm() {
+        state.bgmMute = !state.bgmMute;
+        saveAudioPrefs();
+        if (state.bgmMute) {
+          if (this.bgmGain) this.fadeBgm(0);
+          // 留 source 開著但靜音，這樣再按開的話可以瞬間恢復；不過保險起見直接停掉重啟
+          setTimeout(() => { if (state.bgmMute) this.stopBgm(); }, 300);
+        } else {
+          await this.startBgm();
         }
       }
     };
@@ -563,8 +663,17 @@
 
     function pointerDown(event) {
       const point = posFromEvent(event);
+
+      // 第一次互動：嘗試啟動背景音樂（瀏覽器要求使用者手勢後才能播）
+      if (!state.bgmMute && !audio.bgmSource) audio.startBgm();
+
+      if (inRect(point, hit.bgm)) {
+        audio.toggleBgm();
+        return;
+      }
       if (inRect(point, hit.mute)) {
         state.mute = !state.mute;
+        saveAudioPrefs();
         if (state.mute && "speechSynthesis" in window) window.speechSynthesis.cancel();
         return;
       }
@@ -782,6 +891,7 @@
 
     function drawKitchen() {
       if (drawKitchenSprite()) {
+        drawBgm();
         drawMute();
         return;
       }
@@ -799,6 +909,7 @@
 
       drawWindow(54, 32);
       drawShelf(660, 54);
+      drawBgm();
       drawMute();
     }
 
@@ -841,6 +952,27 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(state.mute ? "靜" : "聲", hit.mute.x + hit.mute.w / 2, hit.mute.y + hit.mute.h / 2);
+    }
+
+    function drawBgm() {
+      // 背景音樂開關（畫在 mute 按鈕左邊）
+      roundRect(hit.bgm.x, hit.bgm.y, hit.bgm.w, hit.bgm.h, 8, state.bgmMute ? "#eceff1" : "#ffffff");
+      ctx.fillStyle = state.bgmMute ? "#90a4ae" : "#5d4037";
+      ctx.font = "700 22px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const cx = hit.bgm.x + hit.bgm.w / 2;
+      const cy = hit.bgm.y + hit.bgm.h / 2;
+      ctx.fillText(state.bgmMute ? "♪̸" : "♪", cx, cy);
+      if (state.bgmMute) {
+        // 紅色斜線表示關閉
+        ctx.strokeStyle = "#e53935";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(hit.bgm.x + 12, hit.bgm.y + hit.bgm.h - 10);
+        ctx.lineTo(hit.bgm.x + hit.bgm.w - 12, hit.bgm.y + 10);
+        ctx.stroke();
+      }
     }
 
     function drawTitle() {
@@ -3106,7 +3238,8 @@
           againButton: hit.again,
           stickerBookButton: hit.book,
           backButton: hit.back,
-          muteButton: hit.mute
+          muteButton: hit.mute,
+          bgmButton: hit.bgm
         }
       };
       return JSON.stringify(payload);
