@@ -1,4 +1,4 @@
-const CACHE_NAME = "kingdom-kitchen-pwa-v2-20260517";
+const CACHE_NAME = "kingdom-kitchen-pwa-v3-20260525-assets";
 
 const PRECACHE_URLS = [
   "./",
@@ -25,7 +25,17 @@ const PRECACHE_URLS = [
   "./assets/sprites/prep/banana-peeled.png",
   "./assets/sprites/prep/carrot-pieces.png",
   "./assets/sprites/prep/orange-wedges.png",
-  "./assets/sprites/prep/strawberry-clean.png"
+  "./assets/sprites/prep/strawberry-clean.png",
+  "./assets/sprites/vegetables/tomato.png",
+  "./assets/sprites/vegetables/corn.png",
+  "./assets/sprites/vegetables/mushroom.png",
+  "./assets/sprites/prep-vegetables/tomato-slices.png",
+  "./assets/sprites/prep-vegetables/corn-pieces.png",
+  "./assets/sprites/prep-vegetables/mushroom-slices.png",
+  "./assets/sprites/ui/flame.png",
+  "./assets/sprites/ui/restart.png",
+  "./assets/sprites/ui/sound.png",
+  "./assets/sprites/ui/star-sparkle.png"
 ];
 
 self.addEventListener("install", (event) => {

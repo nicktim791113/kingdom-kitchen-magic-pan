@@ -238,11 +238,18 @@
       return entry.count;
     }
 
+    function createSprite(src) {
+      const image = new Image();
+      image.src = src;
+      return image;
+    }
+
     const fruitSprites = {};
     for (const fruit of FRUITS) {
-      const image = new Image();
-      image.src = `assets/sprites/fruit/${fruit.id}.png`;
-      fruitSprites[fruit.id] = image;
+      fruitSprites[fruit.id] = createSprite(`assets/sprites/fruit/${fruit.id}.png`);
+    }
+    for (const vegetable of VEGETABLES) {
+      fruitSprites[vegetable.id] = createSprite(`assets/sprites/vegetables/${vegetable.id}.png`);
     }
     const prepSpriteFiles = {
       apple: "apple-slices",
@@ -251,11 +258,17 @@
       orange: "orange-wedges",
       carrot: "carrot-pieces"
     };
+    const prepVegetableSpriteFiles = {
+      tomato: "tomato-slices",
+      corn: "corn-pieces",
+      mushroom: "mushroom-slices"
+    };
     const prepSprites = {};
     for (const fruit of FRUITS) {
-      const image = new Image();
-      image.src = `assets/sprites/prep/${prepSpriteFiles[fruit.id]}.png`;
-      prepSprites[fruit.id] = image;
+      prepSprites[fruit.id] = createSprite(`assets/sprites/prep/${prepSpriteFiles[fruit.id]}.png`);
+    }
+    for (const vegetable of VEGETABLES) {
+      prepSprites[vegetable.id] = createSprite(`assets/sprites/prep-vegetables/${prepVegetableSpriteFiles[vegetable.id]}.png`);
     }
     const characterSpriteFiles = {
       chef: "chef",
@@ -266,9 +279,7 @@
     };
     const characterSprites = {};
     for (const id of Object.keys(characterSpriteFiles)) {
-      const image = new Image();
-      image.src = `assets/sprites/characters/${characterSpriteFiles[id]}.png`;
-      characterSprites[id] = image;
+      characterSprites[id] = createSprite(`assets/sprites/characters/${characterSpriteFiles[id]}.png`);
     }
     const environmentSpriteFiles = {
       kitchen: "kitchen",
@@ -277,9 +288,17 @@
     };
     const environmentSprites = {};
     for (const id of Object.keys(environmentSpriteFiles)) {
-      const image = new Image();
-      image.src = `assets/sprites/environment/${environmentSpriteFiles[id]}.png`;
-      environmentSprites[id] = image;
+      environmentSprites[id] = createSprite(`assets/sprites/environment/${environmentSpriteFiles[id]}.png`);
+    }
+    const uiSpriteFiles = {
+      flame: "flame",
+      starSparkle: "star-sparkle",
+      restart: "restart",
+      sound: "sound"
+    };
+    const uiSprites = {};
+    for (const id of Object.keys(uiSpriteFiles)) {
+      uiSprites[id] = createSprite(`assets/sprites/ui/${uiSpriteFiles[id]}.png`);
     }
 
     const state = {
@@ -1887,6 +1906,7 @@
       ctx.ellipse(x, y, 130 * scale, 36 * scale, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+      drawUiSprite("flame", x, y - 18 * scale, 96 * scale, 112 * scale);
     }
 
     function drawSoupBoilBubbles(x, y, scale = 1, soupColor = "#ffcc80") {
@@ -2213,6 +2233,10 @@
       return drawLoadedSprite(environmentSprites[id], x, y, maxW, maxH);
     }
 
+    function drawUiSprite(id, x, y, maxW, maxH = maxW) {
+      return drawLoadedSprite(uiSprites[id], x, y, maxW, maxH);
+    }
+
     function drawKitchenSprite() {
       const image = environmentSprites.kitchen;
       if (!image || !image.complete || !image.naturalWidth) return false;
@@ -2281,11 +2305,11 @@
     }
 
     function drawFruit(kind, x, y, r, scale = 1, options = {}) {
-      // 蔬菜純 canvas（沒有對應 sprite），先攔截
+      // 優先使用 PNG sprite；載入失敗時才退回 canvas 繪製。
+      if (!options.forceCanvas && drawFruitSprite(kind, x, y, r, scale)) return;
       if (kind === "tomato") return drawTomato(x, y, r, scale);
       if (kind === "corn") return drawCorn(x, y, r, scale);
       if (kind === "mushroom") return drawMushroom(x, y, r, scale);
-      if (!options.forceCanvas && drawFruitSprite(kind, x, y, r, scale)) return;
       if (kind === "banana") return drawBanana(x, y, r, scale);
       if (kind === "strawberry") return drawStrawberry(x, y, r, scale);
       if (kind === "orange") return drawOrange(x, y, r, scale);
