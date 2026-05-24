@@ -4,3 +4,5 @@ progress.md
 *.log
 .DS_Store
 Thumbs.db
+# Claude Code 的 per-session worktree（不該追蹤到 main repo）
+.claude/
